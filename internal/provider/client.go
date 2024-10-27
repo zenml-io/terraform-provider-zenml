@@ -294,13 +294,18 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 
 // Add pagination support to all list methods
 func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentResponse], error) {
-	query := url.Values{}
-	if params != nil {
-		query.Add("page", fmt.Sprintf("%d", params.Page))
-		query.Add("size", fmt.Sprintf("%d", params.PageSize))
-		for k, v := range params.Filter {
-			query.Add(k, v)
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
 		}
+	}
+	
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
 	}
 	
 	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
@@ -309,6 +314,11 @@ func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentRespons
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
 
 	var result Page[ComponentResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -319,13 +329,18 @@ func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentRespons
 }
 
 func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnectorResponse], error) {
-	query := url.Values{}
-	if params != nil {
-		query.Add("page", fmt.Sprintf("%d", params.Page))
-		query.Add("size", fmt.Sprintf("%d", params.PageSize))
-		for k, v := range params.Filter {
-			query.Add(k, v)
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
 		}
+	}
+	
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
 	}
 	
 	path := fmt.Sprintf("/api/v1/service_connectors?%s", query.Encode())
@@ -334,6 +349,11 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
 
 	var result Page[ServiceConnectorResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
