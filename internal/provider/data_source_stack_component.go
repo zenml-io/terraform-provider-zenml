@@ -9,14 +9,14 @@ func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
 	// Check that only one identifier method is used
-	hasID := d.GetOk("id")
-	hasName := d.GetOk("name")
+	id, hasID := d.GetOk("id")
+	name, hasName := d.GetOk("name")
 	if hasID && hasName {
 		return fmt.Errorf("only one of id or name should be specified")
 	}
 
 	// Try to find by ID first
-	if id, ok := d.GetOk("id"); ok {
+	if hasID {
 		component, err := client.GetComponent(id.(string))
 		if err != nil {
 			return fmt.Errorf("error reading stack component: %v", err)
@@ -26,7 +26,6 @@ func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// Try to find by name and workspace
-	name, hasName := d.GetOk("name")
 	workspace, hasWorkspace := d.GetOk("workspace")
 
 	if !hasName {
