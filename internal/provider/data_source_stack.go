@@ -49,15 +49,20 @@ func dataSourceStackRead(d *schema.ResourceData, m interface{}) error {
 		return setStackData(d, stack)
 	}
 
-	// Otherwise, look up by name
-	name := d.Get("name").(string)
+	// Check if name is provided
+	name, ok := d.GetOk("name")
+	if !ok {
+		return fmt.Errorf("either 'id' or 'name' must be provided")
+	}
+
+	// Look up by name
 	stacks, err := client.ListStacks(nil) // nil for default pagination
 	if err != nil {
 		return fmt.Errorf("error listing stacks: %v", err)
 	}
 
 	for _, stack := range stacks.Items {
-		if stack.Name == name {
+		if stack.Name == name.(string) {
 			return setStackData(d, &stack)
 		}
 	}
