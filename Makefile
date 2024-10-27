@@ -1,4 +1,6 @@
 # Makefile
+VERSION ?= 0.1.0
+
 default: testacc
 
 # Run acceptance tests
@@ -19,8 +21,8 @@ build:
 # Install provider locally
 .PHONY: install
 install: build
-	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/zenml/zenml/0.1.0/$(shell go env GOOS)_$(shell go env GOARCH)
-	cp terraform-provider-zenml ~/.terraform.d/plugins/registry.terraform.io/zenml/zenml/0.1.0/$(shell go env GOOS)_$(shell go env GOARCH)/
+	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/zenml/zenml/$(VERSION)/$(shell go env GOOS)_$(shell go env GOARCH)
+	cp terraform-provider-zenml ~/.terraform.d/plugins/registry.terraform.io/zenml/zenml/$(VERSION)/$(shell go env GOOS)_$(shell go env GOARCH)/
 
 # Generate docs
 .PHONY: docs
