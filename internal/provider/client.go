@@ -9,6 +9,12 @@ import (
 	"net/url"
 )
 
+type ListParams struct {
+	Page     int
+	PageSize int
+	Filter   map[string]string
+}
+
 type Client struct {
 	ServerURL  string
 	APIKey     string
@@ -212,4 +218,38 @@ func (c *Client) DeleteServiceConnector(id string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	}
+
+	url := fmt.Sprintf("%s/api/v1/stacks?page=%d&size=%d", c.ServerURL, params.Page, params.PageSize)
+	
+	// Add filters if any
+	for k, v := range params.Filter {
+		url = fmt.Sprintf("%s&%s=%s", url, k, v)
+	}
+
+	resp, err := c.doRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result Page[StackResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+
+	return &result, nil
 }
