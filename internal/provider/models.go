@@ -36,11 +36,14 @@ type Component struct {
 
 // ComponentBody represents the common fields for component requests/responses
 type ComponentBody struct {
-	Name          string                 `json:"name"`
-	Type          string                 `json:"type"`
-	Flavor        string                 `json:"flavor"`
-	Configuration map[string]interface{} `json:"configuration"`
-	Workspace     string                 `json:"workspace"`
+	Name                string                 `json:"name"`
+	Type                string                 `json:"type"`
+	Flavor              string                 `json:"flavor"`
+	Configuration       map[string]interface{} `json:"configuration"`
+	Workspace           string                 `json:"workspace"`
+	User                string                 `json:"user,omitempty"`
+	ConnectorResourceID string                 `json:"connector_resource_id,omitempty"`
+	Labels              map[string]string      `json:"labels,omitempty"`
 }
 
 // ComponentResponse represents the API response for a component

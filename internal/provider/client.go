@@ -136,9 +136,6 @@ func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error)
 
 	// Update the body with workspace UUID
 	body.Workspace = workspaceID
-	
-	// Remove user field from request
-	body.User = ""  // or we can modify the ComponentBody struct to remove this field entirely
 
 	url := fmt.Sprintf("%s/api/v1/workspaces/%s/components", c.ServerURL, workspaceID)
 	
@@ -410,3 +407,42 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 	return &result, nil
 }
 
+// Add the GetWorkspaceByName method
+func (c *Client) GetWorkspaceByName(name string) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/workspaces", c.ServerURL)
+	
+	// Add query parameter for filtering by name
+	query := url + fmt.Sprintf("?name=%s", name)
+	
+	req, err := http.NewRequest("GET", query, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(result.Items) == 0 {
+		return "", fmt.Errorf("workspace %s not found", name)
+	}
+
+	return result.Items[0].ID, nil
+}
