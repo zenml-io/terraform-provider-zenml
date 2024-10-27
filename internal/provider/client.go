@@ -64,7 +64,7 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&apiError); err != nil {
 			// If we can't decode the error response, return a generic error
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)  // Ignoring error from ReadAll
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 		return nil, &apiError
