@@ -1,3 +1,4 @@
+// main.go
 package main
 
 import (
@@ -31,5 +32,6 @@ func Provider() *schema.Provider {
 			"zenml_stack_component":   resourceStackComponent(),
 			"zenml_service_connector": resourceServiceConnector(),
 		},
+		DataSourcesMap: map[string]*schema.Resource{},
 	}
 }
