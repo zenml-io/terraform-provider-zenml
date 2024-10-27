@@ -235,3 +235,45 @@ func resourceStackComponentDelete(d *schema.ResourceData, m interface{}) error {
 	d.SetId("")
 	return nil
 }
+
+// resource_stack_component.go
+func resourceStackComponent() *schema.Resource {
+	return &schema.Resource{
+		Create: resourceStackComponentCreate,
+		Read:   resourceStackComponentRead,
+		Update: resourceStackComponentUpdate,
+		Delete: resourceStackComponentDelete,
+		Importer: &schema.ResourceImporter{
+			State: schema.ImportStatePassthrough,
+		},
+
+		Schema: map[string]*schema.Schema{
+			// ... existing fields ...
+			"connector_resource_id": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Description: "ID of a specific resource instance to gain access to through the connector",
+			},
+		},
+
+		CustomizeDiff: validateStackComponent,
+	}
+}
+
+func validateStackComponent(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
+	componentType := d.Get("type").(string)
+	flavor := d.Get("flavor").(string)
+	configuration := d.Get("configuration").(map[string]interface{})
+
+	// Validate component type and flavor combination
+	if err := validateComponentTypeAndFlavor(componentType, flavor); err != nil {
+		return err
+	}
+
+	// Validate configuration based on component type and flavor
+	if err := validateComponentConfiguration(componentType, flavor, configuration); err != nil {
+		return err
+	}
+
+	return nil
+}
