@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -12,6 +13,7 @@ func dataSourceStack() *schema.Resource {
 			"id": {
 				Type:     schema.TypeString,
 				Optional: true,
+				Computed: true,
 			},
 			"name": {
 				Type:     schema.TypeString,
@@ -42,16 +44,16 @@ func dataSourceStackRead(d *schema.ResourceData, m interface{}) error {
 	if id, ok := d.GetOk("id"); ok {
 		stack, err := client.GetStack(id.(string))
 		if err != nil {
-			return err
+			return fmt.Errorf("error reading stack with id %s: %v", id, err)
 		}
 		return setStackData(d, stack)
 	}
 
 	// Otherwise, look up by name
 	name := d.Get("name").(string)
-	stacks, err := client.ListStacks()
+	stacks, err := client.ListStacks(nil) // nil for default pagination
 	if err != nil {
-		return err
+		return fmt.Errorf("error listing stacks: %v", err)
 	}
 
 	for _, stack := range stacks.Items {
@@ -61,4 +63,21 @@ func dataSourceStackRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	return fmt.Errorf("no stack found with name: %s", name)
+}
+
+func setStackData(d *schema.ResourceData, stack *StackResponse) error {
+	d.SetId(stack.ID)
+	d.Set("name", stack.Name)
+
+	components := make(map[string]string)
+	for k, v := range stack.Components {
+		components[k] = v.ID
+	}
+	d.Set("components", components)
+
+	if stack.Labels != nil {
+		d.Set("labels", stack.Labels)
+	}
+
+	return nil
 }
