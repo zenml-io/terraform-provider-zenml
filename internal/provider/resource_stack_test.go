@@ -39,3 +39,7 @@ resource "zenml_stack" "test" {
 }
 `
 }
+func testAccCheckStackDestroy(s *terraform.State) error {
+	// Implementation needed
+	return nil
+}
