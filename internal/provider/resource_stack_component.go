@@ -13,7 +13,17 @@ func resourceStackComponent() *schema.Resource {
 		Update: resourceStackComponentUpdate,
 		Delete: resourceStackComponentDelete,
 		
-		CustomizeDiff: validateStackComponent,
+		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
+			// Validate that if connector is set, connector_resource_id should also be set
+			connector, hasConnector := d.GetOk("connector")
+			connectorResourceID, hasConnectorResourceID := d.GetOk("connector_resource_id")
+
+			if hasConnector && connector.(string) != "" && (!hasConnectorResourceID || connectorResourceID.(string) == "") {
+				return fmt.Errorf("connector_resource_id must be set when connector is specified")
+			}
+
+			return nil
+		},
 
 		Schema: map[string]*schema.Schema{
 			"name": {
