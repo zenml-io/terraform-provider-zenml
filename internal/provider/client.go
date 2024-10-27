@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"io/ioutil"
+	"log"
 )
 
 type ListParams struct {
@@ -135,25 +136,33 @@ func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Add debug logging
+	log.Printf("[DEBUG] Making request to %s with body: %s", url, string(reqBody))
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read the response body
-	respBody, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	// Add debug logging
+	log.Printf("[DEBUG] Received response with status %d: %s", resp.StatusCode, string(respBody))
 
 	// Check for error responses
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
