@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -234,14 +235,17 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 		}
 	}
 
-	url := fmt.Sprintf("%s/api/v1/stacks?page=%d&size=%d", c.ServerURL, params.Page, params.PageSize)
-
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	
 	// Add filters if any
 	for k, v := range params.Filter {
-		url = fmt.Sprintf("%s&%s=%s", url, k, v)
+		query.Add(k, v)
 	}
-
-	resp, err := c.doRequest("GET", url, nil)
+	
+	path := fmt.Sprintf("/api/v1/stacks?%s", query.Encode())
+	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -262,15 +266,17 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 
 // Add pagination support to all list methods
 func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentResponse], error) {
-	url := "/api/v1/components"
+	query := url.Values{}
 	if params != nil {
-		url = fmt.Sprintf("%s?page=%d&size=%d", url, params.Page, params.PageSize)
+		query.Add("page", fmt.Sprintf("%d", params.Page))
+		query.Add("size", fmt.Sprintf("%d", params.PageSize))
 		for k, v := range params.Filter {
-			url = fmt.Sprintf("%s&%s=%s", url, k, v)
+			query.Add(k, v)
 		}
 	}
-
-	resp, err := c.doRequest("GET", url, nil)
+	
+	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
+	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -285,15 +291,17 @@ func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentRespons
 }
 
 func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnectorResponse], error) {
-	url := "/api/v1/service_connectors"
+	query := url.Values{}
 	if params != nil {
-		url = fmt.Sprintf("%s?page=%d&size=%d", url, params.Page, params.PageSize)
+		query.Add("page", fmt.Sprintf("%d", params.Page))
+		query.Add("size", fmt.Sprintf("%d", params.PageSize))
 		for k, v := range params.Filter {
-			url = fmt.Sprintf("%s&%s=%s", url, k, v)
+			query.Add(k, v)
 		}
 	}
-
-	resp, err := c.doRequest("GET", url, nil)
+	
+	path := fmt.Sprintf("/api/v1/service_connectors?%s", query.Encode())
+	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
