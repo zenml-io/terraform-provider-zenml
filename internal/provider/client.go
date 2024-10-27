@@ -160,3 +160,56 @@ func (c *Client) DeleteComponent(id string) error {
 	resp.Body.Close()
 	return nil
 }
+
+// client.go (add these methods)
+
+func (c *Client) CreateServiceConnector(connector ServiceConnectorBody) (*ServiceConnectorResponse, error) {
+	resp, err := c.doRequest("POST", "/api/v1/service_connectors", connector)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, error) {
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateServiceConnector(id string, connector ServiceConnectorUpdate) (*ServiceConnectorResponse, error) {
+	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/service_connectors/%s", id), connector)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteServiceConnector(id string) error {
+	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
