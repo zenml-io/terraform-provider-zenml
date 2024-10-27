@@ -86,8 +86,11 @@ func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error
 	client := m.(*Client)
 
 	connector := ServiceConnectorBody{
-		User:      d.Get("user").(string),
-		Workspace: d.Get("workspace").(string),
+		Name:       d.Get("name").(string),
+		Type:       d.Get("type").(string),
+		AuthMethod: d.Get("auth_method").(string),
+		User:       d.Get("user").(string),
+		Workspace:  d.Get("workspace").(string),
 	}
 
 	// Handle configuration
