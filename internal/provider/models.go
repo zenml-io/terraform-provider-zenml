@@ -24,6 +24,16 @@ type StackUpdate struct {
 }
 
 // Component models
+type Component struct {
+	ID                string                 `json:"id"`
+	Name              string                 `json:"name,omitempty"`
+	Type              string                 `json:"type,omitempty"`
+	Flavor            string                 `json:"flavor,omitempty"`
+	Configuration     map[string]interface{} `json:"configuration,omitempty"`
+	ConnectorID       string                 `json:"connector_id,omitempty"`
+}
+
+
 type ComponentResponse struct {
 	ID       string                  `json:"id"`
 	Name     string                  `json:"name"`
@@ -83,4 +93,15 @@ type ResponseMetadata struct {
 	Updated    string `json:"updated"`
 	User       string `json:"user"`
 	Workspace  string `json:"workspace"`
+}
+
+// APIError represents an error response from the API
+type APIError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Details string `json:"details,omitempty"`
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error (code: %d): %s - %s", e.Code, e.Message, e.Details)
 }
