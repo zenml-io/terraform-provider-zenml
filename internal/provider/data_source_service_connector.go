@@ -14,6 +14,9 @@ func dataSourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error
 		if err != nil {
 			return fmt.Errorf("error reading service connector: %v", err)
 		}
+		if connector == nil {
+			return fmt.Errorf("service connector with id %s not found", id)
+		}
 		d.SetId(connector.ID)
 		return setServiceConnectorFields(d, connector)
 	}
@@ -31,9 +34,12 @@ func dataSourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error
 		workspaceStr = workspace.(string)
 	}
 
-	connector, err := client.GetServiceConnectorByName(name.(string), workspaceStr)
+	connector, err = client.GetServiceConnectorByName(name.(string), workspaceStr)
 	if err != nil {
 		return fmt.Errorf("error reading service connector: %v", err)
+	}
+	if connector == nil {
+		return fmt.Errorf("service connector with name %s not found", name)
 	}
 
 	d.SetId(connector.ID)
@@ -41,16 +47,30 @@ func dataSourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error
 }
 
 func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnectorResponse) error {
-	d.Set("name", connector.Name)
-	d.Set("type", connector.Type)
-	d.Set("auth_method", connector.AuthMethod)
+	if connector == nil {
+		return fmt.Errorf("cannot set fields from nil connector")
+	}
+	
+	if err := d.Set("name", connector.Name); err != nil {
+		return fmt.Errorf("error setting name: %v", err)
+	}
+	if err := d.Set("type", connector.Type); err != nil {
+		return fmt.Errorf("error setting type: %v", err)
+	}
+	if err := d.Set("auth_method", connector.AuthMethod); err != nil {
+		return fmt.Errorf("error setting auth_method: %v", err)
+	}
 
 	if connector.Body != nil {
 		if connector.Body.ResourceTypes != nil {
-			d.Set("resource_types", connector.Body.ResourceTypes)
+			if err := d.Set("resource_types", connector.Body.ResourceTypes); err != nil {
+				return fmt.Errorf("error setting resource_types: %v", err)
+			}
 		}
 		if connector.Body.Workspace != "" {
-			d.Set("workspace", connector.Body.Workspace)
+			if err := d.Set("workspace", connector.Body.Workspace); err != nil {
+				return fmt.Errorf("error setting workspace: %v", err)
+			}
 		}
 	}
 
