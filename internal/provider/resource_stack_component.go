@@ -156,8 +156,6 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	return resourceStackComponentRead(d, m)
 }
 
-// resource_stack_component.go (continued)
-
 func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
