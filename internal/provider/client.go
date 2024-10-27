@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"io/ioutil"
 	"log"
 )
 
@@ -129,14 +128,25 @@ func (c *Client) DeleteStack(id string) error {
 
 // Component operations
 func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/stack-components", c.ServerURL)
+	// First get the workspace UUID
+	workspaceID, err := c.GetWorkspaceByName(body.Workspace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace ID: %w", err)
+	}
+
+	// Update the body with workspace UUID
+	body.Workspace = workspaceID
+	
+	// Remove user field from request
+	body.User = ""  // or we can modify the ComponentBody struct to remove this field entirely
+
+	url := fmt.Sprintf("%s/api/v1/workspaces/%s/components", c.ServerURL, workspaceID)
 	
 	reqBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Add debug logging
 	log.Printf("[DEBUG] Making request to %s with body: %s", url, string(reqBody))
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
@@ -144,7 +154,6 @@ func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
@@ -152,7 +161,7 @@ func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -161,19 +170,12 @@ func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error)
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Add debug logging
-	log.Printf("[DEBUG] Received response with status %d: %s", resp.StatusCode, string(respBody))
+	log.Printf("[DEBUG] Response status: %d, body: %s", resp.StatusCode, string(respBody))
 
-	// Check for error responses
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		var apiErr APIError
-		if err := json.Unmarshal(respBody, &apiErr); err != nil {
-			return nil, fmt.Errorf("API error (status: %d): %s", resp.StatusCode, string(respBody))
-		}
-		return nil, &apiErr
+		return nil, fmt.Errorf("API error (code: %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse the successful response
 	var result ComponentResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
@@ -407,3 +409,4 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 
 	return &result, nil
 }
+
