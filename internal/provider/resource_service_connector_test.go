@@ -27,6 +27,16 @@ func TestAccServiceConnector_basic(t *testing.T) {
 						"zenml_service_connector.test", "auth_method", "service-account"),
 					resource.TestCheckResourceAttr(
 						"zenml_service_connector.test", "configuration.project_id", "test-project"),
+					// Add resource_types validation
+					resource.TestCheckResourceAttr(
+						"zenml_service_connector.test", "resource_types.#", "2"),
+					resource.TestCheckResourceAttr(
+						"zenml_service_connector.test", "resource_types.0", "artifact-store"),
+					resource.TestCheckResourceAttr(
+						"zenml_service_connector.test", "resource_types.1", "container-registry"),
+					// Add at least one secrets check
+					resource.TestCheckResourceAttrSet(
+						"zenml_service_connector.test", "secrets.service_account_json"),
 				),
 			},
 			{
@@ -172,4 +182,3 @@ resource "zenml_service_connector" "test" {
 	}
 }
 `
-}
