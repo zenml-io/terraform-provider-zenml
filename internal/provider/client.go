@@ -1,4 +1,3 @@
-// client.go
 package provider
 
 import (
@@ -20,6 +19,7 @@ type ListParams struct {
 type Client struct {
 	ServerURL  string
 	APIKey     string
+	APIToken   string
 	HTTPClient *http.Client
 }
 
@@ -32,7 +32,7 @@ func NewClient(serverURL, apiKey string) *Client {
 }
 
 func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
-	var bodyReader *bytes.Buffer
+	var bodyReader io.Reader
 
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -47,7 +47,34 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	// Get authorization token from login if APIKey is set, otherwise use APIToken
+	var authToken string
+	if c.APIKey != "" {
+		data := url.Values{}
+		data.Set("password", c.APIKey)
+		loginReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/login", c.ServerURL), bytes.NewBufferString(data.Encode()))
+		if err != nil {
+			return nil, fmt.Errorf("error creating login request: %v", err)
+		}
+		loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		loginResp, err := c.HTTPClient.Do(loginReq)
+		if err != nil {
+			return nil, fmt.Errorf("error making login request: %v", err)
+		}
+		defer loginResp.Body.Close()
+		
+		var tokenResp struct {
+			AccessToken string `json:"access_token"`
+		}
+		if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
+			return nil, fmt.Errorf("error decoding login response: %v", err)
+		}
+		authToken = tokenResp.AccessToken
+	} else {
+		authToken = c.APIToken
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -60,12 +87,8 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		var apiError APIError
-		if resp.Body == nil {
-			return nil, fmt.Errorf("API request failed with status %d: no response body", resp.StatusCode)
-		}
 		if err := json.NewDecoder(resp.Body).Decode(&apiError); err != nil {
-			// If we can't decode the error response, return a generic error
-			body, _ := io.ReadAll(resp.Body)  // Ignoring error from ReadAll
+			body, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 		return nil, &apiError
@@ -75,8 +98,19 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 }
 
 // Stack operations
-func (c *Client) CreateStack(stack StackUpdate) (*StackResponse, error) {
-	resp, err := c.doRequest("POST", "/api/v1/stacks", stack)
+func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackResponse, error) {
+	// Check server version to determine which endpoint to use
+	info, err := c.GetServerInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %v", err)
+	}
+
+	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
+	if isLowerVersion(info.Version, "0.65.0") {
+		endpoint = fmt.Sprintf("/api/v1/workspaces/%s/full-stack", workspace)
+	}
+
+	resp, err := c.doRequest("POST", endpoint, stack)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +123,33 @@ func (c *Client) CreateStack(stack StackUpdate) (*StackResponse, error) {
 	return &result, nil
 }
 
+// GetServerInfo fetches server info to determine version and capabilities
+func (c *Client) GetServerInfo() (*ServerInfo, error) {
+	resp, err := c.doRequest("GET", "/api/v1/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServerInfo
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding server info: %v", err)
+	}
+	return &result, nil
+}
+
+type ServerInfo struct {
+	Version  string            `json:"version"`
+	Metadata map[string]string `json:"metadata"`
+}
+
+// Helper function to compare versions
+func isLowerVersion(version, compare string) bool {
+	// Simple version comparison - in production you'd want a more robust version comparison
+	return version < compare
+}
+
+// Remaining methods from the original client...
 func (c *Client) GetStack(id string) (*StackResponse, error) {
 	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/stacks/%s", id), nil)
 	if err != nil {
@@ -126,63 +187,40 @@ func (c *Client) DeleteStack(id string) error {
 	return nil
 }
 
-// Component operations
-func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error) {
-	// First get the workspace UUID
-	workspaceID, err := c.GetWorkspaceByName(body.Workspace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace ID: %w", err)
+func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
 	}
 
-	// Update the body with workspace UUID
-	body.Workspace = workspaceID
-
-	url := fmt.Sprintf("%s/api/v1/workspaces/%s/components", c.ServerURL, workspaceID)
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
 	
-	reqBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	for k, v := range params.Filter {
+		query.Add(k, v)
 	}
-
-	log.Printf("[DEBUG] Making request to %s with body: %s", url, string(reqBody))
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	
+	path := fmt.Sprintf("/api/v1/stacks?%s", query.Encode())
+	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	log.Printf("[DEBUG] Response status: %d, body: %s", resp.StatusCode, string(respBody))
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("API error (code: %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var result ComponentResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	var result Page[StackResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
 	}
 
 	return &result, nil
 }
 
-func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/components/%s", id), nil)
+// Component operations...
+func (c *Client) CreateComponent(workspace string, body ComponentRequest) (*ComponentResponse, error) {
+	resp, err := c.doRequest("POST", fmt.Sprintf("/api/v1/workspaces/%s/components", workspace), body)
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +233,8 @@ func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
 	return &result, nil
 }
 
-func (c *Client) GetComponentByName(name, workspace string) (*ComponentResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/components?name=%s&workspace=%s", name, workspace), nil)
+func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/components/%s", id), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -232,9 +270,38 @@ func (c *Client) DeleteComponent(id string) error {
 	return nil
 }
 
-// client.go (add these methods)
+func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	}
+	
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
+	}
+	
+	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
+	resp, err := c.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
-func (c *Client) CreateServiceConnector(connector ServiceConnectorBody) (*ServiceConnectorResponse, error) {
+	var result Page[ComponentResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+
+	return &result, nil
+}
+
+// Service Connector operations...
+func (c *Client) CreateServiceConnector(connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
 	resp, err := c.doRequest("POST", "/api/v1/service_connectors", connector)
 	if err != nil {
 		return nil, err
@@ -250,20 +317,6 @@ func (c *Client) CreateServiceConnector(connector ServiceConnectorBody) (*Servic
 
 func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, error) {
 	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result ServiceConnectorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-	return &result, nil
-}
-
-func (c *Client) GetServiceConnectorByName(name, workspace string) (*ServiceConnectorResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors?name=%s&workspace=%s", name, workspace), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -299,79 +352,6 @@ func (c *Client) DeleteServiceConnector(id string) error {
 	return nil
 }
 
-func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	}
-
-	query := url.Values{}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	query.Add("size", fmt.Sprintf("%d", params.PageSize))
-	
-	// Add filters if any
-	for k, v := range params.Filter {
-		query.Add(k, v)
-	}
-	
-	path := fmt.Sprintf("/api/v1/stacks?%s", query.Encode())
-	resp, err := c.doRequest("GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result Page[StackResponse]
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-
-	return &result, nil
-}
-
-// Add pagination support to all list methods
-func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	}
-	
-	query := url.Values{}
-	query.Add("page", fmt.Sprintf("%d", params.Page))
-	query.Add("size", fmt.Sprintf("%d", params.PageSize))
-	for k, v := range params.Filter {
-		query.Add(k, v)
-	}
-	
-	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
-	resp, err := c.doRequest("GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result Page[ComponentResponse]
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-
-	return &result, nil
-}
-
 func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnectorResponse], error) {
 	if params == nil {
 		params = &ListParams{
@@ -394,55 +374,10 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result Page[ServiceConnectorResponse]
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("error decoding response: %v", err)
 	}
 
 	return &result, nil
-}
-
-// Add the GetWorkspaceByName method
-func (c *Client) GetWorkspaceByName(name string) (string, error) {
-	url := fmt.Sprintf("%s/api/v1/workspaces", c.ServerURL)
-	
-	// Add query parameter for filtering by name
-	query := url + fmt.Sprintf("?name=%s", name)
-	
-	req, err := http.NewRequest("GET", query, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Items []struct {
-			ID string `json:"id"`
-		} `json:"items"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if len(result.Items) == 0 {
-		return "", fmt.Errorf("workspace %s not found", name)
-	}
-
-	return result.Items[0].ID, nil
 }
