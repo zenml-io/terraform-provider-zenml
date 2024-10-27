@@ -59,6 +59,9 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		var apiError APIError
+		if resp.Body == nil {
+			return nil, fmt.Errorf("API request failed with status %d: no response body", resp.StatusCode)
+		}
 		if err := json.NewDecoder(resp.Body).Decode(&apiError); err != nil {
 			// If we can't decode the error response, return a generic error
 			body, _ := io.ReadAll(resp.Body)
