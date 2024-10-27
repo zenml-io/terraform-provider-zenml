@@ -24,7 +24,7 @@ func resourceServiceConnector() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 				ValidateFunc: validation.StringInSlice([]string{
-					"aws", "gcp", "azure", "kubernetes", 
+					"aws", "gcp", "azure", "kubernetes",
 					"github", "gitlab", "bitbucket", "docker",
 					"mysql", "postgres", "snowflake", "databricks",
 				}, false),
@@ -155,7 +155,7 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 		d.Set("workspace", connector.Body.Workspace)
 		d.Set("configuration", connector.Body.Configuration)
 		d.Set("resource_types", connector.Body.ResourceTypes)
-		
+
 		if connector.Body.Labels != nil {
 			d.Set("labels", connector.Body.Labels)
 		}

@@ -235,7 +235,7 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 	}
 
 	url := fmt.Sprintf("%s/api/v1/stacks?page=%d&size=%d", c.ServerURL, params.Page, params.PageSize)
-	
+
 	// Add filters if any
 	for k, v := range params.Filter {
 		url = fmt.Sprintf("%s&%s=%s", url, k, v)

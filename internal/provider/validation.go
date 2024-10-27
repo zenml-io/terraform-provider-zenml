@@ -3,9 +3,9 @@ package provider
 
 import (
 	"fmt"
-	"strings"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"strings"
 )
 
 // Connector types and auth methods
@@ -39,17 +39,17 @@ var (
 
 	// Required configuration fields per connector type
 	requiredConfigFields = map[string][]string{
-		"aws": {"region"},
-		"gcp": {"project_id"},
-		"azure": {"subscription_id", "tenant_id"},
+		"aws":        {"region"},
+		"gcp":        {"project_id"},
+		"azure":      {"subscription_id", "tenant_id"},
 		"kubernetes": {"context"},
 	}
 
 	// Optional configuration fields per connector type
 	optionalConfigFields = map[string][]string{
-		"aws": {"role_arn", "external_id", "session_name"},
-		"gcp": {"zone", "location"},
-		"azure": {"resource_group"},
+		"aws":        {"role_arn", "external_id", "session_name"},
+		"gcp":        {"zone", "location"},
+		"azure":      {"resource_group"},
 		"kubernetes": {"namespace", "cluster_name"},
 	}
 

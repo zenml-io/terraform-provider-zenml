@@ -12,7 +12,7 @@ func resourceStackComponent() *schema.Resource {
 		Read:   resourceStackComponentRead,
 		Update: resourceStackComponentUpdate,
 		Delete: resourceStackComponentDelete,
-		
+
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
 			// Validate that if connector is set, connector_resource_id should also be set
 			connector, hasConnector := d.GetOk("connector")
@@ -170,19 +170,19 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 		d.Set("user", component.Body.User)
 		d.Set("workspace", component.Body.Workspace)
 		d.Set("configuration", component.Body.Configuration)
-		
+
 		if component.Body.ConnectorResourceID != nil {
 			d.Set("connector_resource_id", *component.Body.ConnectorResourceID)
 		}
-		
+
 		if component.Body.Labels != nil {
 			d.Set("labels", component.Body.Labels)
 		}
-		
+
 		if component.Body.ComponentSpecPath != nil {
 			d.Set("component_spec_path", *component.Body.ComponentSpecPath)
 		}
-		
+
 		if component.Body.Connector != nil {
 			d.Set("connector", *component.Body.Connector)
 		}

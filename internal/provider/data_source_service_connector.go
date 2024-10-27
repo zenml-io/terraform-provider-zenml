@@ -22,7 +22,7 @@ func dataSourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error
 	// Try to find by name and workspace
 	name, hasName := d.GetOk("name")
 	workspace, hasWorkspace := d.GetOk("workspace")
-	
+
 	if !hasName {
 		return fmt.Errorf("either id or name must be specified")
 	}
@@ -45,7 +45,7 @@ func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnect
 	d.Set("name", connector.Name)
 	d.Set("type", connector.Type)
 	d.Set("auth_method", connector.AuthMethod)
-	
+
 	if connector.Body != nil {
 		if connector.Body.ResourceTypes != nil {
 			d.Set("resource_types", connector.Body.ResourceTypes)
@@ -54,7 +54,7 @@ func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnect
 			d.Set("workspace", connector.Body.Workspace)
 		}
 	}
-	
+
 	return nil
 }
 

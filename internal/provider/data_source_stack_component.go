@@ -22,7 +22,7 @@ func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	// Try to find by name and workspace
 	name, hasName := d.GetOk("name")
 	workspace, hasWorkspace := d.GetOk("workspace")
-	
+
 	if !hasName {
 		return fmt.Errorf("either id or name must be specified")
 	}
@@ -45,14 +45,14 @@ func setStackComponentFields(d *schema.ResourceData, component *ComponentRespons
 	d.Set("name", component.Name)
 	d.Set("type", component.Type)
 	d.Set("flavor", component.Flavor)
-	
+
 	if component.Body != nil {
 		d.Set("configuration", component.Body.Configuration)
 		if component.Body.Workspace != "" {
 			d.Set("workspace", component.Body.Workspace)
 		}
 	}
-	
+
 	return nil
 }
 
