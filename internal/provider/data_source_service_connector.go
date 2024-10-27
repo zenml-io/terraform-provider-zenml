@@ -34,7 +34,7 @@ func dataSourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error
 		workspaceStr = workspace.(string)
 	}
 
-	connector, err = client.GetServiceConnectorByName(name.(string), workspaceStr)
+	connector, err := client.GetServiceConnectorByName(name.(string), workspaceStr)
 	if err != nil {
 		return fmt.Errorf("error reading service connector: %v", err)
 	}
