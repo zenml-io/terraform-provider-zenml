@@ -24,6 +24,10 @@ func resourceStackComponent() *schema.Resource {
 				return fmt.Errorf("connector_resource_id must be set when connector is specified")
 			}
 
+			if hasConnectorResourceID && connectorResourceID.(string) != "" && (!hasConnector || connector.(string) == "") {
+				return fmt.Errorf("connector must be set when connector_resource_id is specified")
+			}
+
 			return nil
 		},
 
