@@ -1,3 +1,5 @@
+package provider
+
 func dataSourceServiceConnector() *schema.Resource {
 	return &schema.Resource{
 		Read: dataSourceServiceConnectorRead,
