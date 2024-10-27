@@ -1,8 +1,8 @@
 package provider
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -55,10 +55,6 @@ func setStackComponentFields(d *schema.ResourceData, component *ComponentRespons
 	
 	return nil
 }
-
-import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-)
 
 func dataSourceStackComponent() *schema.Resource {
 	return &schema.Resource{

@@ -1,8 +1,8 @@
 package provider
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -57,10 +57,6 @@ func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnect
 	
 	return nil
 }
-
-import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-)
 
 func dataSourceServiceConnector() *schema.Resource {
 	return &schema.Resource{
