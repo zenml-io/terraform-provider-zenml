@@ -15,6 +15,30 @@ var (
 		"mysql", "postgres", "snowflake", "databricks",
 	}
 
+	validServiceTypes = map[string][]string{
+		"aws": {
+			"artifact-store",
+			"container-registry",
+			"secrets-manager",
+			"step-operator",
+		},
+		"gcp": {
+			"artifact-store", 
+			"container-registry",
+			"secrets-manager",
+			"step-operator",
+		},
+		"azure": {
+			"artifact-store",
+			"container-registry",
+			"step-operator",
+		},
+		"kubernetes": {
+			"orchestrator",
+			"step-operator",
+		},
+	}
+
 	validAuthMethods = map[string][]string{
 		"aws": {
 			"iam-role",
