@@ -8,6 +8,13 @@ import (
 func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
+	// Check that only one identifier method is used
+	hasID := d.GetOk("id")
+	hasName := d.GetOk("name")
+	if hasID && hasName {
+		return fmt.Errorf("only one of id or name should be specified")
+	}
+
 	// Try to find by ID first
 	if id, ok := d.GetOk("id"); ok {
 		component, err := client.GetComponent(id.(string))
@@ -29,6 +36,10 @@ func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	var workspaceStr string
 	if hasWorkspace {
 		workspaceStr = workspace.(string)
+	}
+
+	if name.(string) == "" {
+		return fmt.Errorf("name cannot be empty")
 	}
 
 	component, err := client.GetComponentByName(name.(string), workspaceStr)
