@@ -47,7 +47,6 @@ func testAccCheckStackDestroy(s *terraform.State) error {
 // Add this new function
 func testAccCheckStackExists(resourceName string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		// Retrieve the resource by name from state
 		rs, ok := s.RootModule().Resources[resourceName]
 		if !ok {
 			return fmt.Errorf("Not found: %s", resourceName)
@@ -57,15 +56,12 @@ func testAccCheckStackExists(resourceName string) resource.TestCheckFunc {
 			return fmt.Errorf("No Stack ID is set")
 		}
 
-		// Add code here to check if the stack exists in your system
-		// This typically involves making an API call to your backend
-
-		// For example:
-		// client := testAccProvider.Meta().(*YourClientType)
-		// _, err := client.GetStack(rs.Primary.ID)
-		// if err != nil {
-		// 	return fmt.Errorf("Error retrieving stack: %s", err)
-		// }
+		// Add actual backend verification
+		client := testAccProvider.Meta().(*Client)
+		_, err := client.GetStack(rs.Primary.ID)
+		if err != nil {
+			return fmt.Errorf("error fetching stack with ID %s: %s", rs.Primary.ID, err)
+		}
 
 		return nil
 	}
