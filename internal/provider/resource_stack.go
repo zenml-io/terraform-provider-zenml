@@ -110,19 +110,19 @@ func resourceStackUpdate(d *schema.ResourceData, m interface{}) error {
 		Name: d.Get("name").(string),
 	}
 
-	if d.HasChange("components") {
-		components := make(map[string]Component)
-		for k, v := range d.Get("components").(map[string]interface{}) {
-			components[k] = Component{
-				ID: v.(string),
-			}
+	// Always include components in update, even if empty
+	components := make(map[string]Component)
+	for k, v := range d.Get("components").(map[string]interface{}) {
+		components[k] = Component{
+			ID: v.(string),
 		}
-		update.Components = components
 	}
+	update.Components = components
 
-	if d.HasChange("labels") {
+	// Always include labels in update, even if empty
+	if v, ok := d.GetOk("labels"); ok {
 		labels := make(map[string]string)
-		for k, v := range d.Get("labels").(map[string]interface{}) {
+		for k, v := range v.(map[string]interface{}) {
 			labels[k] = v.(string)
 		}
 		update.Labels = labels
