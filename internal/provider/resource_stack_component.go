@@ -84,7 +84,6 @@ func resourceStackComponent() *schema.Resource {
 			},
 		},
 
-		ImportState: schema.ImportStatePassthrough,
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
 		},

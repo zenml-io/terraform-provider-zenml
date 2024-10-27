@@ -3,7 +3,7 @@ package main
 
 import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
-	"github.com/zenml-io/terraform-provider-zenml/internal/provider"
+	"terraform-provider-zenml/internal/provider"
 )
 
 func main() {
