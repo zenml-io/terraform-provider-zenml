@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"io/ioutil"
 )
 
 type ListParams struct {
@@ -126,17 +127,49 @@ func (c *Client) DeleteStack(id string) error {
 }
 
 // Component operations
-func (c *Client) CreateComponent(component ComponentBody) (*ComponentResponse, error) {
-	resp, err := c.doRequest("POST", "/api/v1/components", component)
+func (c *Client) CreateComponent(body ComponentBody) (*ComponentResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/stack-components", c.ServerURL)
+	
+	reqBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var result ComponentResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
+	// Read the response body
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	// Check for error responses
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		var apiErr APIError
+		if err := json.Unmarshal(respBody, &apiErr); err != nil {
+			return nil, fmt.Errorf("API error (status: %d): %s", resp.StatusCode, string(respBody))
+		}
+		return nil, &apiErr
+	}
+
+	// Parse the successful response
+	var result ComponentResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
 	return &result, nil
 }
 

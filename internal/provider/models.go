@@ -34,23 +34,22 @@ type Component struct {
 	ConnectorID   string                 `json:"connector_id,omitempty"`
 }
 
-type ComponentResponse struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`
-	Flavor   string            `json:"flavor"`
-	Body     *ComponentBody    `json:"body,omitempty"`
-	Metadata *ResponseMetadata `json:"metadata,omitempty"`
+// ComponentBody represents the common fields for component requests/responses
+type ComponentBody struct {
+	Name                 string                 `json:"name"`
+	Type                 string                 `json:"type"`
+	Flavor               string                 `json:"flavor"`
+	Configuration        map[string]interface{} `json:"configuration"`
+	Workspace            string                 `json:"workspace"`
+	User                 string                 `json:"user"`
+	ConnectorResourceID  string                 `json:"connector_resource_id,omitempty"`
+	Labels              map[string]string      `json:"labels,omitempty"`
 }
 
-type ComponentBody struct {
-	User                string                 `json:"user"`
-	Workspace           string                 `json:"workspace"`
-	Configuration       map[string]interface{} `json:"configuration"`
-	ConnectorResourceID *string                `json:"connector_resource_id,omitempty"`
-	Labels              map[string]string      `json:"labels,omitempty"`
-	ComponentSpecPath   *string                `json:"component_spec_path,omitempty"`
-	Connector           *string                `json:"connector,omitempty"`
+// ComponentResponse represents the API response for a component
+type ComponentResponse struct {
+	ID   string        `json:"id"`
+	Body *ComponentBody `json:"body"`
 }
 
 type ComponentUpdate struct {
@@ -59,6 +58,15 @@ type ComponentUpdate struct {
 	Labels            map[string]string      `json:"labels,omitempty"`
 	ComponentSpecPath *string                `json:"component_spec_path,omitempty"`
 	Connector         *string                `json:"connector,omitempty"`
+}
+
+type ComponentCreate struct {
+	Name          string                 `json:"name"`
+	Type          string                 `json:"type"`
+	Flavor        string                 `json:"flavor"`
+	Configuration map[string]interface{} `json:"configuration"`
+	Workspace     string                 `json:"workspace"`
+	User          string                 `json:"user"`
 }
 
 // Service Connector models
@@ -99,9 +107,9 @@ type ResponseMetadata struct {
 type APIError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Details string `json:"details,omitempty"`
+	Detail  string `json:"detail"`
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("API error (code: %d): %s - %s", e.Code, e.Message, e.Details)
+	return fmt.Sprintf("API error (code: %d): %s - %s", e.Code, e.Message, e.Detail)
 }

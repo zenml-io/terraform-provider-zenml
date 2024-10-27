@@ -2,7 +2,9 @@
 package provider
 
 import (
+	"context"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 )
 
 func Provider() *schema.Provider {
@@ -30,5 +32,30 @@ func Provider() *schema.Provider {
 			"zenml_stack_component":   dataSourceStackComponent(),
 			"zenml_service_connector": dataSourceServiceConnector(),
 		},
+		ConfigureContextFunc: providerConfigure,
 	}
+}
+
+func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	serverURL := d.Get("server_url").(string)
+	apiKey := d.Get("api_key").(string)
+
+	if serverURL == "" {
+		return nil, diag.Errorf("server_url cannot be empty")
+	}
+	if apiKey == "" {
+		return nil, diag.Errorf("api_key cannot be empty")
+	}
+
+	client := NewClient(serverURL, apiKey)
+	if client == nil {
+		return nil, diag.Errorf("failed to create client")
+	}
+
+	// Test the client connection
+	// You might want to add a simple API call here to verify the connection
+	
+	return client, diags
 }

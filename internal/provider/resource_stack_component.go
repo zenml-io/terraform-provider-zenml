@@ -107,89 +107,77 @@ func resourceStackComponent() *schema.Resource {
 }
 
 func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
-	client := m.(*Client)
+	client, ok := m.(*Client)
+	if !ok {
+		return fmt.Errorf("invalid client type: expected *Client")
+	}
+	if client == nil {
+		return fmt.Errorf("client is nil")
+	}
 
+	// Create the component request
 	component := ComponentBody{
-		User:      d.Get("user").(string),
-		Workspace: d.Get("workspace").(string),
+		Name:          d.Get("name").(string),
+		Type:          d.Get("type").(string),
+		Flavor:        d.Get("flavor").(string),
+		Configuration: d.Get("configuration").(map[string]interface{}),
+		Workspace:     d.Get("workspace").(string),
+		User:          d.Get("user").(string),
 	}
 
-	// Handle configuration
-	if v, ok := d.GetOk("configuration"); ok {
-		configMap := make(map[string]interface{})
-		for k, v := range v.(map[string]interface{}) {
-			configMap[k] = v
-		}
-		component.Configuration = configMap
-	}
-
-	// Handle optional fields
-	if v, ok := d.GetOk("connector_resource_id"); ok {
-		str := v.(string)
-		component.ConnectorResourceID = &str
-	}
-
-	if v, ok := d.GetOk("labels"); ok {
-		labelsMap := make(map[string]string)
-		for k, v := range v.(map[string]interface{}) {
-			labelsMap[k] = v.(string)
-		}
-		component.Labels = labelsMap
-	}
-
-	if v, ok := d.GetOk("component_spec_path"); ok {
-		str := v.(string)
-		component.ComponentSpecPath = &str
-	}
-
-	if v, ok := d.GetOk("connector"); ok {
-		str := v.(string)
-		component.Connector = &str
-	}
-
+	// Make the API call with better error handling
 	resp, err := client.CreateComponent(component)
 	if err != nil {
-		return err
+		if apiErr, ok := err.(*APIError); ok {
+			return fmt.Errorf("API error (code: %d): %s - %s", apiErr.Code, apiErr.Message, apiErr.Detail)
+		}
+		return fmt.Errorf("failed to create component: %w", err)
 	}
 
+	// Set the ID from the response
 	d.SetId(resp.ID)
-	return resourceStackComponentRead(d, m)
+
+	// Set other attributes from the response body
+	if resp.Body != nil {
+		d.Set("name", resp.Body.Name)
+		d.Set("type", resp.Body.Type)
+		d.Set("flavor", resp.Body.Flavor)
+		d.Set("configuration", resp.Body.Configuration)
+		d.Set("workspace", resp.Body.Workspace)
+		d.Set("user", resp.Body.User)
+	}
+
+	return nil
 }
 
 func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
-	client := m.(*Client)
+	client, ok := m.(*Client)
+	if !ok {
+		return fmt.Errorf("invalid client type: expected *Client")
+	}
 
 	component, err := client.GetComponent(d.Id())
 	if err != nil {
-		// Handle 404 by removing from state
-		d.SetId("")
-		return nil
+		return fmt.Errorf("error getting component: %w", err)
 	}
 
-	d.Set("name", component.Name)
-	d.Set("type", component.Type)
-	d.Set("flavor", component.Flavor)
+	if component.Body == nil {
+		return fmt.Errorf("received empty response body")
+	}
 
-	if component.Body != nil {
-		d.Set("user", component.Body.User)
-		d.Set("workspace", component.Body.Workspace)
-		d.Set("configuration", component.Body.Configuration)
-
-		if component.Body.ConnectorResourceID != nil {
-			d.Set("connector_resource_id", *component.Body.ConnectorResourceID)
-		}
-
-		if component.Body.Labels != nil {
-			d.Set("labels", component.Body.Labels)
-		}
-
-		if component.Body.ComponentSpecPath != nil {
-			d.Set("component_spec_path", *component.Body.ComponentSpecPath)
-		}
-
-		if component.Body.Connector != nil {
-			d.Set("connector", *component.Body.Connector)
-		}
+	d.Set("name", component.Body.Name)
+	d.Set("type", component.Body.Type)
+	d.Set("flavor", component.Body.Flavor)
+	d.Set("configuration", component.Body.Configuration)
+	d.Set("workspace", component.Body.Workspace)
+	d.Set("user", component.Body.User)
+	
+	if component.Body.ConnectorResourceID != "" {
+		d.Set("connector_resource_id", component.Body.ConnectorResourceID)
+	}
+	
+	if component.Body.Labels != nil {
+		d.Set("labels", component.Body.Labels)
 	}
 
 	return nil

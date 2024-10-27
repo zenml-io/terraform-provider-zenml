@@ -1,65 +1,69 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 )
 
 func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
-	client := m.(*Client)
-
-	// Check that only one identifier method is used
-	id, hasID := d.GetOk("id")
-	name, hasName := d.GetOk("name")
-	if hasID && hasName {
-		return fmt.Errorf("only one of id or name should be specified")
+	client, ok := m.(*Client)
+	if !ok {
+		return fmt.Errorf("invalid client type: expected *Client")
 	}
 
-	// Try to find by ID first
-	if hasID {
-		component, err := client.GetComponent(id.(string))
-		if err != nil {
-			return fmt.Errorf("error reading stack component: %v", err)
-		}
-		d.SetId(component.ID)
-		return setStackComponentFields(d, component)
-	}
-
-	// Try to find by name and workspace
-	workspace, hasWorkspace := d.GetOk("workspace")
-
-	if !hasName {
-		return fmt.Errorf("either id or name must be specified")
-	}
-
-	var workspaceStr string
-	if hasWorkspace {
-		workspaceStr = workspace.(string)
-	}
-
-	if name.(string) == "" {
-		return fmt.Errorf("name cannot be empty")
-	}
-
-	component, err := client.GetComponentByName(name.(string), workspaceStr)
+	// Get the component by ID
+	component, err := client.GetComponent(d.Get("id").(string))
 	if err != nil {
-		return fmt.Errorf("error reading stack component: %v", err)
+		return fmt.Errorf("error getting component: %w", err)
 	}
 
+	if component.Body == nil {
+		return fmt.Errorf("received empty response body")
+	}
+
+	// Always access fields through component.Body
 	d.SetId(component.ID)
-	return setStackComponentFields(d, component)
+	d.Set("name", component.Body.Name)
+	d.Set("type", component.Body.Type)
+	d.Set("flavor", component.Body.Flavor)
+	d.Set("configuration", component.Body.Configuration)
+	d.Set("workspace", component.Body.Workspace)
+	d.Set("user", component.Body.User)
+
+	if component.Body.ConnectorResourceID != "" {
+		d.Set("connector_resource_id", component.Body.ConnectorResourceID)
+	}
+	
+	if component.Body.Labels != nil {
+		d.Set("labels", component.Body.Labels)
+	}
+
+	return nil
 }
 
 func setStackComponentFields(d *schema.ResourceData, component *ComponentResponse) error {
-	d.Set("name", component.Name)
-	d.Set("type", component.Type)
-	d.Set("flavor", component.Flavor)
+	if component.Body == nil {
+		return fmt.Errorf("received empty response body")
+	}
 
-	if component.Body != nil {
-		d.Set("configuration", component.Body.Configuration)
-		if component.Body.Workspace != "" {
-			d.Set("workspace", component.Body.Workspace)
-		}
+	// Access all fields through component.Body
+	d.Set("name", component.Body.Name)
+	d.Set("type", component.Body.Type)
+	d.Set("flavor", component.Body.Flavor)
+	d.Set("configuration", component.Body.Configuration)
+	
+	if component.Body.Workspace != "" {
+		d.Set("workspace", component.Body.Workspace)
+	}
+	
+	if component.Body.ConnectorResourceID != "" {
+		d.Set("connector_resource_id", component.Body.ConnectorResourceID)
+	}
+	
+	if component.Body.Labels != nil {
+		d.Set("labels", component.Body.Labels)
 	}
 
 	return nil
@@ -67,7 +71,12 @@ func setStackComponentFields(d *schema.ResourceData, component *ComponentRespons
 
 func dataSourceStackComponent() *schema.Resource {
 	return &schema.Resource{
-		Read: dataSourceStackComponentRead,
+		ReadContext: schema.ReadContextFunc(func(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+			if err := dataSourceStackComponentRead(d, m); err != nil {
+				return diag.FromErr(err)
+			}
+			return nil
+		}),
 
 		Schema: map[string]*schema.Schema{
 			"id": {
@@ -76,7 +85,7 @@ func dataSourceStackComponent() *schema.Resource {
 			},
 			"name": {
 				Type:     schema.TypeString,
-				Optional: true,
+				Computed: true,
 			},
 			"type": {
 				Type:     schema.TypeString,
@@ -96,7 +105,22 @@ func dataSourceStackComponent() *schema.Resource {
 			},
 			"workspace": {
 				Type:     schema.TypeString,
-				Optional: true,
+				Computed: true,
+			},
+			"user": {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
+			"connector_resource_id": {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
+			"labels": {
+				Type:     schema.TypeMap,
+				Computed: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
 			},
 		},
 	}
