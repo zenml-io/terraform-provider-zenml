@@ -68,6 +68,20 @@ var (
 
 func validateServiceConnector(d *schema.ResourceData) error {
 	connectorType := d.Get("type").(string)
+	
+	// Validate connector type first
+	validType := false
+	for _, t := range validConnectorTypes {
+		if t == connectorType {
+			validType = true
+			break
+		}
+	}
+	if !validType {
+		return fmt.Errorf("invalid connector type %q. Valid types are: %s",
+			connectorType, strings.Join(validConnectorTypes, ", "))
+	}
+
 	authMethod := d.Get("auth_method").(string)
 
 	// Validate auth method for connector type
