@@ -151,6 +151,20 @@ func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
 	return &result, nil
 }
 
+func (c *Client) GetComponentByName(name, workspace string) (*ComponentResponse, error) {
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/components?name=%s&workspace=%s", name, workspace), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ComponentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
 func (c *Client) UpdateComponent(id string, component ComponentUpdate) (*ComponentResponse, error) {
 	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/components/%s", id), component)
 	if err != nil {
@@ -192,6 +206,20 @@ func (c *Client) CreateServiceConnector(connector ServiceConnectorBody) (*Servic
 
 func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, error) {
 	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetServiceConnectorByName(name, workspace string) (*ServiceConnectorResponse, error) {
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors?name=%s&workspace=%s", name, workspace), nil)
 	if err != nil {
 		return nil, err
 	}
