@@ -117,7 +117,7 @@ func testAccCheckStackComponentDestroy(s *terraform.State) error {
 				return fmt.Errorf("Stack Component still exists")
 			}
 		case "zenml_service_connector":
-			_, err := client.GetConnector(rs.Primary.ID)
+			_, err := client.GetServiceConnector(rs.Primary.ID)
 			if err == nil {
 				return fmt.Errorf("Service Connector still exists")
 			}
