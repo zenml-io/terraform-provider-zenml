@@ -4,6 +4,7 @@ package provider
 import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"context"
 )
 
 func resourceServiceConnector() *schema.Resource {
@@ -23,16 +24,18 @@ func resourceServiceConnector() *schema.Resource {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
-				ValidateFunc: validation.StringInSlice([]string{
-					"aws", "gcp", "azure", "kubernetes",
-					"github", "gitlab", "bitbucket", "docker",
-					"mysql", "postgres", "snowflake", "databricks",
-				}, false),
+				ValidateFunc: validation.StringInSlice(validConnectorTypes, false),
 			},
 			"auth_method": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
+				ValidateFunc: validation.StringInSlice([]string{
+					"iam-role", "aws-access-keys", "web-identity",
+					"service-account", "oauth2", "workload-identity",
+					"service-principal", "managed-identity",
+					"kubeconfig", "service-account",
+				}, false),
 			},
 			"resource_types": {
 				Type:     schema.TypeSet,
@@ -74,6 +77,10 @@ func resourceServiceConnector() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
+		},
+
+		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
+			return validateServiceConnector(d)
 		},
 
 		Importer: &schema.ResourceImporter{
