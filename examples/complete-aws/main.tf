@@ -21,7 +21,7 @@ provider "aws" {
 
 # Create AWS resources if needed
 resource "aws_s3_bucket" "artifacts" {
-  bucket = "${var.name_prefix}-zenml-artifacts"
+  bucket = "${var.name_prefix}-zenml-artifacts-${var.environment}"
 }
 
 resource "aws_s3_bucket_versioning" "artifacts" {
@@ -32,12 +32,12 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 }
 
 resource "aws_ecr_repository" "containers" {
-  name = "${var.name_prefix}-zenml-containers"
+  name = "${var.name_prefix}-zenml-containers-${var.environment}"
 }
 
 # IAM Role for ZenML
 resource "aws_iam_role" "zenml" {
-  name = "${var.name_prefix}-zenml-role"
+  name = "${var.name_prefix}-zenml-role-${var.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -94,7 +94,7 @@ resource "zenml_stack_component" "artifact_store" {
     path = "s3://${aws_s3_bucket.artifacts.bucket}/artifacts"
   }
 
-  connector = zenml_service_connector.aws.id
+  connector_id = zenml_service_connector.aws.id
 
   labels = {
     environment = var.environment
@@ -113,7 +113,7 @@ resource "zenml_stack_component" "container_registry" {
     uri = aws_ecr_repository.containers.repository_url
   }
 
-  connector = zenml_service_connector.aws.id
+  connector_id = zenml_service_connector.aws.id
 
   labels = {
     environment = var.environment
@@ -132,7 +132,7 @@ resource "zenml_stack_component" "orchestrator" {
     role_arn = aws_iam_role.zenml.arn
   }
 
-  connector = zenml_service_connector.aws.id
+  connector_id = zenml_service_connector.aws.id
 
   labels = {
     environment = var.environment

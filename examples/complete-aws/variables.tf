@@ -26,9 +26,3 @@ variable "name_prefix" {
   type        = string
   description = "Prefix for resource names"
 }
-
-variable "workspace" {
-  type        = string
-  default     = "default"
-  description = "Name of the ZenML workspace"
-}
