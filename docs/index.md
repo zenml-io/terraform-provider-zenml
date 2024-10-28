@@ -92,6 +92,27 @@ provider "zenml" {
 }
 ```
 
+### Generating an API Key
+
+To generate a ZENML_API_KEY, follow these steps:
+
+1. Install ZenML:
+```bash
+pip install zenml
+```
+
+2. Connect to your ZenML server:
+```bash
+zenml connect --url <API_URL>
+```
+
+3. Create a service account and get the API key:
+```bash
+zenml service-account create <MYSERVICEACCOUNTNAME>
+```
+
+This command will print out the ZENML_API_KEY that you can use with this provider.
+
 ## Provider Arguments
 
 * `server_url` - (Optional) The URL of your ZenML server. Can be set with the `ZENML_SERVER_URL` environment variable.

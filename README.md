@@ -59,6 +59,25 @@ export ZENML_SERVER_URL="https://your-zenml-server.com"
 export ZENML_API_KEY="your-api-key"
 ```
 
+To generate a ZENML_API_KEY, follow these steps:
+
+1. Install ZenML:
+```bash
+pip install zenml
+```
+
+2. Connect to your ZenML server:
+```bash
+zenml connect --url <API_URL>
+```
+
+3. Create a service account and get the API key:
+```bash
+zenml service-account create <MYSERVICEACCOUNTNAME>
+```
+
+This command will print out the ZENML_API_KEY that you can use with this provider.
+
 ### Example Usage
 
 Here's a basic example of creating a stack with components:
