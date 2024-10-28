@@ -19,7 +19,6 @@ type ListParams struct {
 type Client struct {
 	ServerURL  string
 	APIKey     string
-	APIToken   string
 	HTTPClient *http.Client
 }
 
@@ -52,34 +51,28 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Get authorization token from login if APIKey is set, otherwise use APIToken
-	var authToken string
-	if c.APIKey != "" {
-		data := url.Values{}
-		data.Set("password", c.APIKey)
-		loginReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/login", c.ServerURL), bytes.NewBufferString(data.Encode()))
-		if err != nil {
-			return nil, fmt.Errorf("error creating login request: %v", err)
-		}
-		loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		loginResp, err := c.HTTPClient.Do(loginReq)
-		if err != nil {
-			return nil, fmt.Errorf("error making login request: %v", err)
-		}
-		defer loginResp.Body.Close()
-		
-		var tokenResp struct {
-			AccessToken string `json:"access_token"`
-		}
-		if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
-			return nil, fmt.Errorf("error decoding login response: %v", err)
-		}
-		authToken = tokenResp.AccessToken
-	} else {
-		authToken = c.APIToken
+	// Always get a new token using password flow
+	data := url.Values{}
+	data.Set("password", c.APIKey)
+	loginReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/login", c.ServerURL), bytes.NewBufferString(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("error creating login request: %v", err)
+	}
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResp, err := c.HTTPClient.Do(loginReq)
+	if err != nil {
+		return nil, fmt.Errorf("error making login request: %v", err)
+	}
+	defer loginResp.Body.Close()
+	
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("error decoding login response: %v", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResp.AccessToken))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -91,12 +84,8 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
-		var apiError APIError
-		if err := json.NewDecoder(resp.Body).Decode(&apiError); err != nil {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-		return nil, &apiError
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	return resp, nil
@@ -119,21 +108,7 @@ func (c *Client) GetServerInfo() (*ServerInfo, error) {
 
 // Stack operations
 func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackResponse, error) {
-	// Check server version to determine which endpoint to use
-	info, err := c.GetServerInfo()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server info: %v", err)
-	}
-
-	log.Printf("Server info: %+v", info)
-
 	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
-
-	// Set workspace in request if not already set
-	if stack.Workspace == nil {
-		stack.Workspace = &workspace
-	}
-
 	resp, err := c.doRequest("POST", endpoint, stack)
 	if err != nil {
 		return nil, err
@@ -271,7 +246,7 @@ func (c *Client) DeleteComponent(id string) error {
 	return nil
 }
 
-func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentResponse], error) {
+func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Page[ComponentResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -286,7 +261,7 @@ func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentRespons
 		query.Add(k, v)
 	}
 	
-	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
+	path := fmt.Sprintf("/api/v1/workspaces/%s/components?%s", workspace, query.Encode())
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -302,8 +277,9 @@ func (c *Client) ListStackComponents(params *ListParams) (*Page[ComponentRespons
 }
 
 // Service Connector operations...
-func (c *Client) CreateServiceConnector(connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
-	resp, err := c.doRequest("POST", "/api/v1/service_connectors", connector)
+func (c *Client) CreateServiceConnector(workspace string, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
+	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/service_connectors", workspace)
+	resp, err := c.doRequest("POST", endpoint, connector)
 	if err != nil {
 		return nil, err
 	}
