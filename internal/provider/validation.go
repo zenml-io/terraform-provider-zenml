@@ -105,7 +105,7 @@ var (
 	}
 )
 
-func validateServiceConnector(d *schema.ResourceData) error {
+func validateServiceConnector(d *schema.ResourceDiff) error {
 	connectorType := d.Get("type").(string)
 	
 	// Validate connector type first

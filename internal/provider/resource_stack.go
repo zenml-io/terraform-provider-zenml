@@ -3,6 +3,9 @@ package provider
 
 import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"context"
+	"fmt"
+	"strings"
 )
 
 func resourceStack() *schema.Resource {
@@ -34,8 +37,30 @@ func resourceStack() *schema.Resource {
 			},
 		},
 
+		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
+			// Validate component types
+			if v, ok := d.GetOk("components"); ok {
+				components := v.(map[string]interface{})
+				for compType := range components {
+					valid := false
+					for _, validType := range validComponentTypes {
+						if compType == validType {
+							valid = true
+							break
+						}
+					}
+					if !valid {
+						return fmt.Errorf(
+							"invalid component type %q. Valid types are: %s",
+							compType, strings.Join(validComponentTypes, ", "))
+					}
+				}
+			}
+			return nil
+		},
+
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 	}
 }
