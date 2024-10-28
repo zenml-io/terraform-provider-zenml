@@ -22,13 +22,13 @@ provider "google" {
 
 # Create GCP resources if needed
 resource "google_storage_bucket" "artifacts" {
-  name     = "${var.project_id}-zenml-artifacts"
+  name     = "${var.project_id}-zenml-artifacts-${var.environment}"
   location = var.region
 }
 
 resource "google_artifact_registry_repository" "containers" {
   location      = var.region
-  repository_id = "zenml-containers"
+  repository_id = "zenml-containers-${var.environment}"
   format        = "DOCKER"
 }
 
@@ -101,8 +101,7 @@ resource "zenml_stack_component" "orchestrator" {
   flavor = "vertex"
 
   configuration = {
-    project     = var.project_id
-    region      = var.region
+    location    = var.region
     synchronous = true
   }
 
