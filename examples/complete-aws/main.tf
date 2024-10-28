@@ -58,11 +58,11 @@ resource "aws_iam_role" "zenml" {
 
 # ZenML Service Connector for AWS
 resource "zenml_service_connector" "aws" {
-  name        = "aws-${var.environment}"
-  type        = "aws"
-  auth_method = "iam-role"
-  user        = var.user_id
-  workspace   = var.workspace_id
+  name           = "aws-${var.environment}"
+  type           = "aws"
+  auth_method    = "iam-role"
+  user           = var.user_id
+  workspace      = var.workspace_id
 
   resource_types = [
     "artifact-store",
@@ -110,7 +110,7 @@ resource "zenml_stack_component" "container_registry" {
   workspace = var.workspace_id
 
   configuration = {
-    uri = "${aws_ecr_repository.containers.repository_url}"
+    uri = aws_ecr_repository.containers.repository_url
   }
 
   connector = zenml_service_connector.aws.id
