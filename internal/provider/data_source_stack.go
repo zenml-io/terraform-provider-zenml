@@ -74,15 +74,8 @@ func setStackData(d *schema.ResourceData, stack *StackResponse) error {
 	d.SetId(stack.ID)
 	d.Set("name", stack.Name)
 
-	components := make(map[string]string)
-	for k, v := range stack.Components {
-		components[k] = v.ID
-	}
-	d.Set("components", components)
-
-	if stack.Labels != nil {
-		d.Set("labels", stack.Labels)
-	}
+	d.Set("components", stack.Metadata.Components)
+	d.Set("labels", stack.Metadata.Labels)
 
 	return nil
 }

@@ -44,26 +44,30 @@ func dataSourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 }
 
 func setStackComponentFields(d *schema.ResourceData, component *ComponentResponse) error {
-	if component.Body == nil {
-		return fmt.Errorf("received empty response body")
+	if err := d.Set("name", component.Name); err != nil {
+		return fmt.Errorf("error setting name: %v", err)
 	}
 
-	// Access all fields through component.Body
-	d.Set("name", component.Body.Name)
-	d.Set("type", component.Body.Type)
-	d.Set("flavor", component.Body.Flavor)
-	d.Set("configuration", component.Body.Configuration)
-	
-	if component.Body.Workspace != "" {
-		d.Set("workspace", component.Body.Workspace)
-	}
-	
-	if component.Body.ConnectorResourceID != "" {
-		d.Set("connector_resource_id", component.Body.ConnectorResourceID)
-	}
-	
-	if component.Body.Labels != nil {
-		d.Set("labels", component.Body.Labels)
+	if component.Metadata != nil {
+		if err := d.Set("configuration", component.Metadata.Configuration); err != nil {
+			return fmt.Errorf("error setting configuration: %v", err)
+		}
+
+		if component.Metadata.Workspace != nil {
+			if err := d.Set("workspace", component.Metadata.Workspace.Name); err != nil {
+				return fmt.Errorf("error setting workspace: %v", err)
+			}
+		}
+
+		if component.Metadata.ConnectorResourceID != nil {
+			if err := d.Set("connector_resource_id", component.Metadata.ConnectorResourceID); err != nil {
+				return fmt.Errorf("error setting connector_resource_id: %v", err)
+			}
+		}
+
+		if err := d.Set("labels", component.Metadata.Labels); err != nil {
+			return fmt.Errorf("error setting labels: %v", err)
+		}
 	}
 
 	return nil

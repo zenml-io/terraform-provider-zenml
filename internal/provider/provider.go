@@ -56,6 +56,7 @@ func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, 
 
 	// Test the client connection
 	// You might want to add a simple API call here to verify the connection
-	
+	client.GetServerInfo()
+
 	return client, diags
 }

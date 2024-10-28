@@ -54,10 +54,10 @@ func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnect
 	if err := d.Set("name", connector.Name); err != nil {
 		return fmt.Errorf("error setting name: %v", err)
 	}
-	if err := d.Set("type", connector.Type); err != nil {
+	if err := d.Set("type", connector.Body.ConnectorType); err != nil {
 		return fmt.Errorf("error setting type: %v", err)
 	}
-	if err := d.Set("auth_method", connector.AuthMethod); err != nil {
+	if err := d.Set("auth_method", connector.Body.AuthMethod); err != nil {
 		return fmt.Errorf("error setting auth_method: %v", err)
 	}
 
@@ -67,10 +67,11 @@ func setServiceConnectorFields(d *schema.ResourceData, connector *ServiceConnect
 				return fmt.Errorf("error setting resource_types: %v", err)
 			}
 		}
-		if connector.Body.Workspace != "" {
-			if err := d.Set("workspace", connector.Body.Workspace); err != nil {
-				return fmt.Errorf("error setting workspace: %v", err)
-			}
+	}
+
+	if connector.Metadata != nil && connector.Metadata.Workspace != nil {
+		if err := d.Set("workspace", connector.Metadata.Workspace.Name); err != nil {
+			return fmt.Errorf("error setting workspace: %v", err)
 		}
 	}
 

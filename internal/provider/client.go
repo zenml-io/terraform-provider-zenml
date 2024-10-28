@@ -23,6 +23,11 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+type ServerInfo struct {
+	Version  string            `json:"version"`
+	Metadata map[string]string `json:"metadata"`
+}
+
 func NewClient(serverURL, apiKey string) *Client {
 	return &Client{
 		ServerURL:  serverURL,
@@ -97,32 +102,6 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	return resp, nil
 }
 
-// Stack operations
-func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackResponse, error) {
-	// Check server version to determine which endpoint to use
-	info, err := c.GetServerInfo()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server info: %v", err)
-	}
-
-	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
-	if isLowerVersion(info.Version, "0.65.0") {
-		endpoint = fmt.Sprintf("/api/v1/workspaces/%s/full-stack", workspace)
-	}
-
-	resp, err := c.doRequest("POST", endpoint, stack)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result StackResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-	return &result, nil
-}
-
 // GetServerInfo fetches server info to determine version and capabilities
 func (c *Client) GetServerInfo() (*ServerInfo, error) {
 	resp, err := c.doRequest("GET", "/api/v1/info", nil)
@@ -138,15 +117,34 @@ func (c *Client) GetServerInfo() (*ServerInfo, error) {
 	return &result, nil
 }
 
-type ServerInfo struct {
-	Version  string            `json:"version"`
-	Metadata map[string]string `json:"metadata"`
-}
+// Stack operations
+func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackResponse, error) {
+	// Check server version to determine which endpoint to use
+	info, err := c.GetServerInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server info: %v", err)
+	}
 
-// Helper function to compare versions
-func isLowerVersion(version, compare string) bool {
-	// Simple version comparison - in production you'd want a more robust version comparison
-	return version < compare
+	log.Printf("Server info: %+v", info)
+
+	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
+
+	// Set workspace in request if not already set
+	if stack.Workspace == nil {
+		stack.Workspace = &workspace
+	}
+
+	resp, err := c.doRequest("POST", endpoint, stack)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result StackResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
 }
 
 // Remaining methods from the original client...
@@ -219,8 +217,11 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 }
 
 // Component operations...
-func (c *Client) CreateComponent(workspace string, body ComponentRequest) (*ComponentResponse, error) {
-	resp, err := c.doRequest("POST", fmt.Sprintf("/api/v1/workspaces/%s/components", workspace), body)
+func (c *Client) CreateComponent(workspace string, component ComponentRequest) (*ComponentResponse, error) {
+	// Ensure workspace and user are set in the request
+	component.Workspace = workspace
+	
+	resp, err := c.doRequest("POST", fmt.Sprintf("/api/v1/workspaces/%s/components", workspace), component)
 	if err != nil {
 		return nil, err
 	}
@@ -380,4 +381,25 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 	}
 
 	return &result, nil
+}
+
+// Add this new method to the Client
+func (c *Client) GetServiceConnectorByName(workspace, name string) (*ServiceConnectorResponse, error) {
+	params := &ListParams{
+		Filter: map[string]string{
+			"name": name,
+			"workspace": workspace,
+		},
+	}
+	
+	connectors, err := c.ListServiceConnectors(params)
+	if err != nil {
+		return nil, err
+	}
+	
+	if len(connectors.Items) == 0 {
+		return nil, fmt.Errorf("no service connector found with name %s", name)
+	}
+	
+	return &connectors.Items[0], nil
 }
