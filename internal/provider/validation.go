@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Connector types and auth methods
+// All validation constants and variables
 var (
 	validConnectorTypes = []string{
 		"aws", "gcp", "azure", "kubernetes",
@@ -87,6 +87,21 @@ var (
 		"azure": {
 			"service-principal": {"client_id", "client_secret"},
 		},
+	}
+
+	validComponentTypes = []string{
+		"alerter",
+		"annotator", 
+		"artifact_store",
+		"container_registry",
+		"data_validator",
+		"experiment_tracker",
+		"feature_store",
+		"image_builder",
+		"model_deployer",
+		"orchestrator",
+		"step_operator",
+		"model_registry",
 	}
 )
 

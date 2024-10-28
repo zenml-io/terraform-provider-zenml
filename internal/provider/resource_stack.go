@@ -43,31 +43,24 @@ func resourceStack() *schema.Resource {
 func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
-	stack := StackUpdate{
+	// Get the workspace from configuration or use a default
+	workspace := "default" // You may want to make this configurable
+
+	stack := StackRequest{
 		Name: d.Get("name").(string),
 	}
 
 	// Handle components
 	if v, ok := d.GetOk("components"); ok {
-		components := make(map[string]Component)
+		components := make(map[string][]string)
 		for k, v := range v.(map[string]interface{}) {
-			components[k] = Component{
-				ID: v.(string),
-			}
+			// Convert single ID to array of IDs since API expects array
+			components[k] = []string{v.(string)}
 		}
 		stack.Components = components
 	}
 
-	// Handle labels
-	if v, ok := d.GetOk("labels"); ok {
-		labels := make(map[string]string)
-		for k, v := range v.(map[string]interface{}) {
-			labels[k] = v.(string)
-		}
-		stack.Labels = labels
-	}
-
-	resp, err := client.CreateStack(stack)
+	resp, err := client.CreateStack(workspace, stack)
 	if err != nil {
 		return err
 	}
@@ -88,16 +81,21 @@ func resourceStackRead(d *schema.ResourceData, m interface{}) error {
 
 	d.Set("name", stack.Name)
 
-	// Handle components
-	components := make(map[string]string)
-	for k, v := range stack.Components {
-		components[k] = v.ID
+	// Handle components - flatten the array structure to single IDs
+	if stack.Metadata != nil && stack.Metadata.Components != nil {
+		components := make(map[string]string)
+		for compType, compArray := range stack.Metadata.Components {
+			if len(compArray) > 0 {
+				// Take first component ID for each type
+				components[compType] = compArray[0].ID
+			}
+		}
+		d.Set("components", components)
 	}
-	d.Set("components", components)
 
-	// Handle labels
-	if stack.Labels != nil {
-		d.Set("labels", stack.Labels)
+	// Handle labels if present
+	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+		d.Set("labels", stack.Metadata.Labels)
 	}
 
 	return nil
@@ -106,26 +104,30 @@ func resourceStackRead(d *schema.ResourceData, m interface{}) error {
 func resourceStackUpdate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
+	name := d.Get("name").(string)
 	update := StackUpdate{
-		Name: d.Get("name").(string),
+		Name: &name,
 	}
 
-	// Always include components in update, even if empty
-	components := make(map[string]Component)
-	for k, v := range d.Get("components").(map[string]interface{}) {
-		components[k] = Component{
-			ID: v.(string),
+	// Handle components
+	if d.HasChange("components") {
+		components := make(map[string][]string)
+		for k, v := range d.Get("components").(map[string]interface{}) {
+			// Convert single ID to array of IDs
+			components[k] = []string{v.(string)}
 		}
+		update.Components = components
 	}
-	update.Components = components
 
-	// Always include labels in update, even if empty
-	if v, ok := d.GetOk("labels"); ok {
-		labels := make(map[string]string)
-		for k, v := range v.(map[string]interface{}) {
-			labels[k] = v.(string)
+	// Handle labels
+	if d.HasChange("labels") {
+		if v, ok := d.GetOk("labels"); ok {
+			labels := make(map[string]string)
+			for k, v := range v.(map[string]interface{}) {
+				labels[k] = v.(string)
+			}
+			update.Labels = labels
 		}
-		update.Labels = labels
 	}
 
 	_, err := client.UpdateStack(d.Id(), update)

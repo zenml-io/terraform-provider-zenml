@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"log"
 )
 
 type ListParams struct {
@@ -193,10 +192,8 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 
 // Component operations...
 func (c *Client) CreateComponent(workspace string, component ComponentRequest) (*ComponentResponse, error) {
-	// Ensure workspace and user are set in the request
-	component.Workspace = workspace
-	
-	resp, err := c.doRequest("POST", fmt.Sprintf("/api/v1/workspaces/%s/components", workspace), component)
+	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/components", workspace)
+	resp, err := c.doRequest("POST", endpoint, component)
 	if err != nil {
 		return nil, err
 	}
@@ -379,3 +376,35 @@ func (c *Client) GetServiceConnectorByName(workspace, name string) (*ServiceConn
 	
 	return &connectors.Items[0], nil
 }
+
+// Add this new method to the Client
+func (c *Client) GetWorkspaceByName(name string) (*WorkspaceResponse, error) {
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/workspaces/%s", name), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result WorkspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+
+	return &result, nil
+}
+
+// Add this method to get the current user
+func (c *Client) GetCurrentUser() (*UserResponse, error) {
+	resp, err := c.doRequest("GET", "/api/v1/current-user", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result UserResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding user response: %v", err)
+	}
+	return &result, nil
+}
+

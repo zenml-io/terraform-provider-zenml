@@ -32,56 +32,31 @@ func resourceStackComponent() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ValidateFunc: validation.StringLenBetween(1, 255),
-			},
-			"type": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.StringInSlice([]string{
-					"alerter",
-					"annotator",
-					"artifact_store",
-					"container_registry",
-					"data_validator",
-					"experiment_tracker",
-					"feature_store",
-					"image_builder",
-					"model_deployer",
-					"orchestrator",
-					"step_operator",
-					"model_registry",
-				}, false),
-			},
-			"flavor": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			"configuration": {
-				Type:     schema.TypeMap,
-				Required: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
-			"user": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
 			"workspace": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
 			},
-			"connector_resource_id": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "ID of a specific resource instance to gain access to through the connector",
+			"name": {
+				Type:     schema.TypeString,
+				Required: true,
+			},
+			"type": {
+				Type:         schema.TypeString,
+				Required:     true,
+				ValidateFunc: validation.StringInSlice(validComponentTypes, false),
+			},
+			"flavor": {
+				Type:     schema.TypeString,
+				Required: true,
+			},
+			"configuration": {
+				Type:      schema.TypeMap,
+				Optional:  true,
+				Sensitive: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
 			},
 			"labels": {
 				Type:     schema.TypeMap,
@@ -90,11 +65,11 @@ func resourceStackComponent() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
-			"component_spec_path": {
+			"connector_id": {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
-			"connector": {
+			"connector_resource_id": {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
@@ -115,21 +90,54 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("client is nil")
 	}
 
+	// Get the current user
+	user, err := client.GetCurrentUser()
+	if err != nil {
+		return fmt.Errorf("error getting current user: %w", err)
+	}
+
+	workspaceName := d.Get("workspace").(string)
+	
+	// Get the workspace ID
+	workspace, err := client.GetWorkspaceByName(workspaceName)
+	if err != nil {
+		return fmt.Errorf("error getting workspace: %w", err)
+	}
+
 	// Create the component request
-	component := ComponentBody{
+	component := ComponentRequest{
+		User:          user.ID,           // Add the user ID
 		Name:          d.Get("name").(string),
 		Type:          d.Get("type").(string),
 		Flavor:        d.Get("flavor").(string),
 		Configuration: d.Get("configuration").(map[string]interface{}),
-		Workspace:     d.Get("workspace").(string),
-		User:          d.Get("user").(string),
+		Workspace:     workspace.ID,
 	}
 
-	// Make the API call with better error handling
-	resp, err := client.CreateComponent(component)
+	// Handle optional fields
+	if v, ok := d.GetOk("connector_id"); ok {
+		connectorID := v.(string)
+		component.ConnectorID = &connectorID
+	}
+
+	if v, ok := d.GetOk("connector_resource_id"); ok {
+		resourceID := v.(string)
+		component.ConnectorResourceID = &resourceID
+	}
+
+	if v, ok := d.GetOk("labels"); ok {
+		labels := make(map[string]string)
+		for k, v := range v.(map[string]interface{}) {
+			labels[k] = v.(string)
+		}
+		component.Labels = labels
+	}
+
+	// Make the API call
+	resp, err := client.CreateComponent(workspace.ID, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
-			return fmt.Errorf("API error (code: %d): %s - %s", apiErr.Code, apiErr.Message, apiErr.Detail)
+			return fmt.Errorf("API error: %s", apiErr.Error())
 		}
 		return fmt.Errorf("failed to create component: %w", err)
 	}
@@ -137,14 +145,20 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	// Set the ID from the response
 	d.SetId(resp.ID)
 
-	// Set other attributes from the response body
+	// Set other attributes from the response
+	d.Set("name", resp.Name)
 	if resp.Body != nil {
-		d.Set("name", resp.Body.Name)
 		d.Set("type", resp.Body.Type)
 		d.Set("flavor", resp.Body.Flavor)
-		d.Set("configuration", resp.Body.Configuration)
-		d.Set("workspace", resp.Body.Workspace)
-		d.Set("user", resp.Body.User)
+	}
+	if resp.Metadata != nil {
+		d.Set("configuration", resp.Metadata.Configuration)
+		if resp.Metadata.ConnectorResourceID != nil {
+			d.Set("connector_resource_id", *resp.Metadata.ConnectorResourceID)
+		}
+		if resp.Metadata.Labels != nil {
+			d.Set("labels", resp.Metadata.Labels)
+		}
 	}
 
 	return nil
@@ -161,23 +175,24 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("error getting component: %w", err)
 	}
 
-	if component.Body == nil {
-		return fmt.Errorf("received empty response body")
-	}
-
-	d.Set("name", component.Body.Name)
-	d.Set("type", component.Body.Type)
-	d.Set("flavor", component.Body.Flavor)
-	d.Set("configuration", component.Body.Configuration)
-	d.Set("workspace", component.Body.Workspace)
-	d.Set("user", component.Body.User)
+	d.Set("name", component.Name)
 	
-	if component.Body.ConnectorResourceID != "" {
-		d.Set("connector_resource_id", component.Body.ConnectorResourceID)
+	if component.Body != nil {
+		d.Set("type", component.Body.Type)
+		d.Set("flavor", component.Body.Flavor)
 	}
 	
-	if component.Body.Labels != nil {
-		d.Set("labels", component.Body.Labels)
+	if component.Metadata != nil {
+		d.Set("configuration", component.Metadata.Configuration)
+		if component.Metadata.Workspace != nil {
+			d.Set("workspace", component.Metadata.Workspace.Name)
+		}
+		if component.Metadata.ConnectorResourceID != nil {
+			d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID)
+		}
+		if component.Metadata.Labels != nil {
+			d.Set("labels", component.Metadata.Labels)
+		}
 	}
 
 	return nil
@@ -186,8 +201,10 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
+	// Create update with proper string pointer for name
+	name := d.Get("name").(string)
 	update := ComponentUpdate{
-		Name: d.Get("name").(string),
+		Name: &name,
 	}
 
 	if d.HasChange("configuration") {
@@ -213,10 +230,10 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 		}
 	}
 
-	if d.HasChange("connector") {
-		if v, ok := d.GetOk("connector"); ok {
+	if d.HasChange("connector_id") {
+		if v, ok := d.GetOk("connector_id"); ok {
 			str := v.(string)
-			update.Connector = &str
+			update.ConnectorID = &str
 		}
 	}
 

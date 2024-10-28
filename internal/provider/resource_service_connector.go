@@ -85,9 +85,12 @@ func resourceServiceConnector() *schema.Resource {
 func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
-	connector := ServiceConnectorBody{
-		User:       d.Get("user").(string),
-		Workspace:  d.Get("workspace").(string),
+	connector := ServiceConnectorRequest{
+		User:          d.Get("user").(string),
+		Workspace:     d.Get("workspace").(string),
+		Name:          d.Get("name").(string),
+		ConnectorType: d.Get("type").(string),
+		AuthMethod:    d.Get("auth_method").(string),
 	}
 
 	// Handle configuration
@@ -101,9 +104,9 @@ func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error
 
 	// Handle secrets
 	if v, ok := d.GetOk("secrets"); ok {
-		secretsMap := make(map[string]interface{})
+		secretsMap := make(map[string]string)
 		for k, v := range v.(map[string]interface{}) {
-			secretsMap[k] = v
+			secretsMap[k] = v.(string)
 		}
 		connector.Secrets = secretsMap
 	}
@@ -127,7 +130,7 @@ func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error
 		connector.Labels = labelsMap
 	}
 
-	resp, err := client.CreateServiceConnector(connector)
+	resp, err := client.CreateServiceConnector(connector.Workspace, connector)
 	if err != nil {
 		return err
 	}
@@ -146,19 +149,17 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	d.Set("name", connector.Name)
-	d.Set("type", connector.Type)
-	d.Set("auth_method", connector.AuthMethod)
+	d.Set("type", connector.Body.ConnectorType)
+	d.Set("auth_method", connector.Body.AuthMethod)
+	d.Set("resource_types", connector.Body.ResourceTypes)
 
 	if connector.Body != nil {
-		d.Set("user", connector.Body.User)
-		d.Set("workspace", connector.Body.Workspace)
-		d.Set("configuration", connector.Body.Configuration)
-		d.Set("resource_types", connector.Body.ResourceTypes)
-
-		if connector.Body.Labels != nil {
-			d.Set("labels", connector.Body.Labels)
+		d.Set("user", connector.Body.User.Name)
+		if connector.Metadata != nil {
+			d.Set("workspace", connector.Metadata.Workspace.Name)
+			d.Set("configuration", connector.Metadata.Configuration)
+			d.Set("labels", connector.Metadata.Labels)
 		}
-
 		// Don't set secrets back as they are sensitive
 	}
 
@@ -168,8 +169,11 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 func resourceServiceConnectorUpdate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
-	update := ServiceConnectorUpdate{
-		Name: d.Get("name").(string),
+	update := ServiceConnectorUpdate{}
+
+	if d.HasChange("name") {
+		name := d.Get("name").(string)
+		update.Name = &name
 	}
 
 	if d.HasChange("configuration") {
@@ -181,20 +185,11 @@ func resourceServiceConnectorUpdate(d *schema.ResourceData, m interface{}) error
 	}
 
 	if d.HasChange("secrets") {
-		secretsMap := make(map[string]interface{})
+		secretsMap := make(map[string]string)
 		for k, v := range d.Get("secrets").(map[string]interface{}) {
-			secretsMap[k] = v
+			secretsMap[k] = v.(string)
 		}
 		update.Secrets = secretsMap
-	}
-
-	if d.HasChange("resource_types") {
-		resourceTypesSet := d.Get("resource_types").(*schema.Set)
-		resourceTypes := make([]string, resourceTypesSet.Len())
-		for i, rt := range resourceTypesSet.List() {
-			resourceTypes[i] = rt.(string)
-		}
-		update.ResourceTypes = resourceTypes
 	}
 
 	if d.HasChange("labels") {

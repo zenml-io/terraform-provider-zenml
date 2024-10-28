@@ -28,9 +28,10 @@ type StackRequest struct {
 
 // StackResponse represents a stack response from the API
 type StackResponse struct {
-	ID          string                     `json:"id"`
-	Name        string                     `json:"name"`
-	Components  map[string][]ComponentResponse `json:"components"`
+	ID       string                `json:"id"`
+	Name     string                `json:"name"`
+	Body     *StackResponseBody    `json:"body,omitempty"`
+	Metadata *StackResponseMetadata `json:"metadata,omitempty"`
 }
 
 type StackResponseBody struct {
@@ -72,20 +73,19 @@ type ComponentRequest struct {
 
 // ComponentResponse represents a stack component response from the API
 type ComponentResponse struct {
-	ID            string                  `json:"id"`
-	Name          string                  `json:"name"`
-	Type          string                  `json:"type"`
-	Flavor        string                  `json:"flavor"`
-	Configuration map[string]interface{}  `json:"configuration"`
+	ID       string                    `json:"id"`
+	Name     string                    `json:"name"`
+	Body     *ComponentResponseBody    `json:"body,omitempty"`
+	Metadata *ComponentResponseMetadata `json:"metadata,omitempty"`
 }
 
 type ComponentResponseBody struct {
-	Created    string                           `json:"created"`
-	Updated    string                           `json:"updated"`
-	User       *UserResponse                    `json:"user,omitempty"`
-	Type       string                           `json:"type"`
-	Flavor     string                           `json:"flavor"`
-	Integration *string                         `json:"integration,omitempty"`
+	Created    string                  `json:"created"`
+	Updated    string                  `json:"updated"`
+	User       *UserResponse           `json:"user,omitempty"`
+	Type       string                  `json:"type"`
+	Flavor     string                  `json:"flavor"`
+	Integration *string                `json:"integration,omitempty"`
 }
 
 type ComponentResponseMetadata struct {
@@ -162,8 +162,37 @@ type ServiceConnectorUpdate struct {
 
 // UserResponse represents a user response from the API
 type UserResponse struct {
-	ID      string                               `json:"id"`
-	Name    string                               `json:"name"`
+	ID               string           `json:"id"`
+	Name             string           `json:"name"`
+	Body             *UserResponseBody `json:"body,omitempty"`
+	Metadata         *UserResponseMetadata `json:"metadata,omitempty"`
+	Resources        interface{}      `json:"resources"`
+	PermissionDenied bool             `json:"permission_denied"`
+}
+
+type UserResponseBody struct {
+	Created          string  `json:"created"`
+	Updated          string  `json:"updated"`
+	Active           bool    `json:"active"`
+	ActivationToken  *string `json:"activation_token"`
+	FullName         string  `json:"full_name"`
+	EmailOptedIn     bool    `json:"email_opted_in"`
+	IsServiceAccount bool    `json:"is_service_account"`
+	IsAdmin          bool    `json:"is_admin"`
+}
+
+type UserResponseMetadata struct {
+	Email           *string         `json:"email"`
+	ExternalUserID  *string         `json:"external_user_id"`
+	UserMetadata    UserMetadata    `json:"user_metadata"`
+}
+
+type UserMetadata struct {
+	PrimaryUse             string   `json:"primary_use"`
+	UsageReason           string   `json:"usage_reason"`
+	InfraProviders        []string `json:"infra_providers"`
+	FinishedOnboardingSurvey bool  `json:"finished_onboarding_survey"`
+	OverviewTourDone      bool     `json:"overview_tour_done"`
 }
 
 // WorkspaceResponse represents a workspace response from the API

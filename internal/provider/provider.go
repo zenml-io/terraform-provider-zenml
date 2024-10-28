@@ -27,11 +27,11 @@ func Provider() *schema.Provider {
 			"zenml_stack_component":   resourceStackComponent(),
 			"zenml_service_connector": resourceServiceConnector(),
 		},
-		DataSourcesMap: map[string]*schema.Resource{
-			"zenml_stack":             dataSourceStack(),
-			"zenml_stack_component":   dataSourceStackComponent(),
-			"zenml_service_connector": dataSourceServiceConnector(),
-		},
+		// DataSourcesMap: map[string]*schema.Resource{
+		// 	"zenml_stack":             dataSourceStack(),
+		// 	"zenml_stack_component":   dataSourceStackComponent(),
+		// 	"zenml_service_connector": dataSourceServiceConnector(),
+		// },
 		ConfigureContextFunc: providerConfigure,
 	}
 }
