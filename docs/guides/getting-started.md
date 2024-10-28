@@ -12,11 +12,12 @@ This guide will help you get started with the ZenML provider for Terraform.
 ## Prerequisites
 
 - [Terraform](https://www.terraform.io/downloads.html) 0.13+
-- A ZenML server and API key
+- A ZenML server
+- An API key for authentication
 
 ## Provider Configuration
 
-First, configure the ZenML provider in your Terraform configuration:
+Configure the ZenML provider in your Terraform configuration:
 
 ```hcl
 terraform {
@@ -28,44 +29,52 @@ terraform {
 }
 
 provider "zenml" {
-  # Configuration options
+  # Configuration options will be loaded from environment variables:
+  # ZENML_SERVER_URL
+  # ZENML_API_KEY
 }
 ```
 
-Set your ZenML server URL and API key using environment variables:
+Set your environment variables:
 
-```sh
+```bash
 export ZENML_SERVER_URL="https://your-zenml-server.com"
 export ZENML_API_KEY="your-api-key"
 ```
 
-## Creating Resources
+## Basic Example
 
-Here's an example of how to create a ZenML stack:
+Here's a simple example creating a stack with a component:
 
 ```hcl
+# Create a stack component
 resource "zenml_stack_component" "artifact_store" {
+  workspace = "default"
   name      = "my-artifact-store"
   type      = "artifact_store"
-  flavor    = "gcp"
-  user      = "user-uuid"
-  workspace = "workspace-uuid"
+  flavor    = "local"
   
   configuration = {
-    path = "gs://my-bucket/artifacts"
+    path = "/path/to/artifacts"
   }
 }
 
-resource "zenml_stack" "my_stack" {
+# Create a stack using the component
+resource "zenml_stack" "example" {
   name = "my-stack"
+  
   components = {
-    artifact_store = zenml_stack_component.artifact_store.id
+    "artifact_store" = zenml_stack_component.artifact_store.id
+  }
+  
+  labels = {
+    environment = "dev"
   }
 }
 ```
 
 ## Next Steps
 
-- Explore the [resources](/docs/resources) and [data sources](/docs/data-sources) provided by the ZenML provider.
-- Check out the [examples](https://github.com/zenml-io/terraform-provider-zenml/tree/main/examples) in the provider repository.
-- Read the [ZenML documentation](https://docs.zenml.io/) to learn more about ZenML concepts and features.
+- Explore the [Stack Component](/docs/resources/stack_component) resource
+- Learn about [Stack](/docs/resources/stack) configuration
+- Check out [Service Connectors](/docs/resources/service_connector) for external services
