@@ -3,6 +3,7 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -29,11 +30,9 @@ func TestAccServiceConnector_basic(t *testing.T) {
 						"zenml_service_connector.test", "configuration.project_id", "test-project"),
 					// Add resource_types validation
 					resource.TestCheckResourceAttr(
-						"zenml_service_connector.test", "resource_types.#", "2"),
+						"zenml_service_connector.test", "resource_types.#", "1"),
 					resource.TestCheckResourceAttr(
 						"zenml_service_connector.test", "resource_types.0", "artifact-store"),
-					resource.TestCheckResourceAttr(
-						"zenml_service_connector.test", "resource_types.1", "container-registry"),
 					// Add at least one secrets check
 					resource.TestCheckResourceAttrSet(
 						"zenml_service_connector.test", "secrets.service_account_json"),
@@ -118,18 +117,15 @@ func testAccCheckServiceConnectorDestroy(s *terraform.State) error {
 }
 
 func testAccServiceConnectorConfig_basic() string {
-	return `
+	return fmt.Sprintf(`
 resource "zenml_service_connector" "test" {
 	name        = "test-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	user        = "user-uuid"
-	workspace   = "workspace-uuid"
+	workspace   = "%s"
+	user        = "%s"
 	
-	resource_types = [
-		"artifact-store",
-		"container-registry"
-	]
+	resource_types = ["artifact-store"]
 	
 	configuration = {
 		project_id = "test-project"
@@ -146,7 +142,7 @@ resource "zenml_service_connector" "test" {
 		environment = "test"
 	}
 }
-`
+`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
 }
 
 func testAccServiceConnectorConfig_update() string {

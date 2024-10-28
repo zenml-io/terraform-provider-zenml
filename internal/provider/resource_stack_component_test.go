@@ -3,6 +3,7 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -24,7 +25,7 @@ func TestAccStackComponent_basic(t *testing.T) {
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "type", "artifact_store"),
 					resource.TestCheckResourceAttr(
-						"zenml_stack_component.test", "flavor", "gcp"),
+						"zenml_stack_component.test", "flavor", "local"),
 				),
 			},
 			{
@@ -128,37 +129,36 @@ func testAccCheckStackComponentDestroy(s *terraform.State) error {
 }
 
 func testAccStackComponentConfig_basic() string {
-	return `
+	return fmt.Sprintf(`
 resource "zenml_stack_component" "test" {
 	name      = "test-store"
 	type      = "artifact_store"
-	flavor    = "gcp"
-	user      = "user-uuid"
-	workspace = "workspace-uuid"
+	flavor    = "local"
+	workspace = "%s"
+	user      = "%s"
 	
 	configuration = {
-		path = "gs://test-bucket/artifacts"
+		path = "/tmp/artifacts"
 	}
 	
 	labels = {
 		environment = "test"
 	}
 }
-`
+`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
 }
 
 func testAccStackComponentConfig_update() string {
-	return `
+	return fmt.Sprintf(`
 resource "zenml_stack_component" "test" {
 	name      = "updated-store"
 	type      = "artifact_store"
-	flavor    = "gcp"
-	user      = "user-uuid"
-	workspace = "workspace-uuid"
+	flavor    = "local"
+	workspace = "%s"
+	user      = "%s"
 	
 	configuration = {
-		path = "gs://test-bucket/artifacts"
-		location = "us-central1"
+		path = "/tmp/artifacts-updated"
 	}
 	
 	labels = {
@@ -166,7 +166,7 @@ resource "zenml_stack_component" "test" {
 		team        = "ml"
 	}
 }
-`
+`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
 }
 
 func testAccStackComponentConfig_withConnector() string {

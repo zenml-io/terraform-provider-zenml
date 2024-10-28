@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"os"
 )
 
 func TestAccStack_basic(t *testing.T) {
@@ -26,17 +27,32 @@ func TestAccStack_basic(t *testing.T) {
 }
 
 func testAccStackConfig_basic() string {
-	return `
-resource "zenml_stack" "test" {
-  name = "test-stack"
-  components = {
-    "artifact_store" = "test-store-id"
-  }
-  labels = {
-    "environment" = "test"
-  }
+	return fmt.Sprintf(`
+resource "zenml_stack_component" "artifact_store" {
+    name      = "test-store"
+    type      = "artifact_store"
+    flavor    = "local"
+    workspace = "%s"
+    user      = "%s"
+    
+    configuration = {
+        path = "/tmp/artifacts"
+    }
 }
-`
+
+resource "zenml_stack" "test" {
+    name      = "test-stack"
+    workspace = "%s"
+    
+    components = {
+        "artifact_store" = zenml_stack_component.artifact_store.id
+    }
+    
+    labels = {
+        environment = "test"
+    }
+}
+`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"), os.Getenv("ZENML_WORKSPACE"))
 }
 
 func testAccCheckStackDestroy(s *terraform.State) error {
