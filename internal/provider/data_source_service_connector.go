@@ -13,9 +13,10 @@ func dataSourceServiceConnector() *schema.Resource {
 		ReadContext: dataSourceServiceConnectorRead,
 		Schema: map[string]*schema.Schema{
 			"workspace": {
-				Description: "Name of the workspace",
+				Description: "Name of the workspace (defaults to 'default')",
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				Default:     "default",
 			},
 			"name": {
 				Description: "Name of the service connector",

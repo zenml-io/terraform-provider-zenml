@@ -68,8 +68,9 @@ resource "zenml_stack" "my_stack" {
   * `feature_store`
   * `image_builder`
 * `labels` - (Optional) A map of labels to associate with the stack.
+* `workspace` - (Optional) The workspace to create the stack in. Defaults to "default". Forces new resource if changed.
 
--> **Note** The stack will be created in the default workspace. Future versions may allow workspace configuration.
+-> **Note** If no workspace is specified, the stack will be created in the "default" workspace.
 
 ## Attributes Reference
 

@@ -16,6 +16,12 @@ func resourceStack() *schema.Resource {
 		Delete: resourceStackDelete,
 
 		Schema: map[string]*schema.Schema{
+			"workspace": {
+				Type:     schema.TypeString,
+				Optional: true,
+				Default:  "default",
+				ForceNew: true,
+			},
 			"name": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -68,8 +74,8 @@ func resourceStack() *schema.Resource {
 func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
-	// Get the workspace from configuration or use a default
-	workspace := "default" // You may want to make this configurable
+	// Get the workspace from schema instead of hardcoding
+	workspace := d.Get("workspace").(string)
 
 	stack := StackRequest{
 		Name: d.Get("name").(string),
@@ -77,12 +83,12 @@ func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 
 	// Handle components
 	if v, ok := d.GetOk("components"); ok {
-		components := make(map[string][]string)
-		for k, v := range v.(map[string]interface{}) {
-			// Convert single ID to array of IDs since API expects array
-			components[k] = []string{v.(string)}
-		}
-		stack.Components = components
+			components := make(map[string][]string)
+			for k, v := range v.(map[string]interface{}) {
+				// Convert single ID to array of IDs since API expects array
+				components[k] = []string{v.(string)}
+			}
+			stack.Components = components
 	}
 
 	resp, err := client.CreateStack(workspace, stack)

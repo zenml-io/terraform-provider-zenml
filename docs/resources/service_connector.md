@@ -55,7 +55,7 @@ resource "zenml_service_connector" "gcp_connector" {
   * Azure: `service-principal`, `managed-identity`
   * Kubernetes: `kubeconfig`, `service-account`
 * `user` - (Required, Forces new resource) The ID of the user who owns this connector.
-* `workspace` - (Required, Forces new resource) The ID of the workspace this connector belongs to.
+* `workspace` - (Optional) The workspace this connector belongs to. Defaults to "default". Forces new resource if changed.
 * `resource_types` - (Optional) A list of resource types this connector can be used for (e.g., `artifact-store`, `container-registry`, `orchestrator`).
 * `configuration` - (Required, Sensitive) A map of configuration key-value pairs for the connector.
 * `secrets` - (Optional, Sensitive) A map of secret key-value pairs for the connector.

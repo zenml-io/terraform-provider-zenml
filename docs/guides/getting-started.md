@@ -49,7 +49,6 @@ Here's a simple example creating a stack with a component:
 ```hcl
 # Create a stack component
 resource "zenml_stack_component" "artifact_store" {
-  workspace = "default"
   name      = "my-artifact-store"
   type      = "artifact_store"
   flavor    = "local"

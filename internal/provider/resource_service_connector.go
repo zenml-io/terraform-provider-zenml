@@ -67,7 +67,8 @@ func resourceServiceConnector() *schema.Resource {
 			},
 			"workspace": {
 				Type:     schema.TypeString,
-				Required: true,
+				Optional: true,
+				Default:  "default",
 				ForceNew: true,
 			},
 			"labels": {

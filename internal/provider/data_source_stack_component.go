@@ -15,9 +15,10 @@ func dataSourceStackComponent() *schema.Resource {
 		ReadContext: dataSourceStackComponentRead,
 		Schema: map[string]*schema.Schema{
 			"workspace": {
-				Description: "Name of the workspace",
+				Description: "Name of the workspace (defaults to 'default')",
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				Default:     "default",
 			},
 			"name": {
 				Description: "Name of the stack component",

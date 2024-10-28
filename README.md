@@ -69,6 +69,7 @@ resource "zenml_service_connector" "gcp" {
   name        = "gcp-connector"
   type        = "gcp"
   auth_method = "service-account"
+  # workspace defaults to "default" if not specified
   
   resource_types = [
     "artifact-store",
@@ -95,6 +96,7 @@ resource "zenml_stack_component" "artifact_store" {
   name   = "gcs-store"
   type   = "artifact_store"
   flavor = "gcp"
+  # workspace defaults to "default" if not specified
   
   configuration = {
     path = "gs://my-bucket/artifacts"
@@ -110,6 +112,7 @@ resource "zenml_stack_component" "artifact_store" {
 # Create a stack using the components
 resource "zenml_stack" "ml_stack" {
   name = "production-stack"
+  # workspace defaults to "default" if not specified
   
   components = {
     artifact_store = zenml_stack_component.artifact_store.id
@@ -120,6 +123,8 @@ resource "zenml_stack" "ml_stack" {
   }
 }
 ```
+
+> **Note:** All resources support an optional `workspace` parameter that defaults to "default" if not specified. You can override this by setting `workspace = "your-workspace-name"` in any resource.
 
 See the [examples](./examples/) directory for more complete examples.
 

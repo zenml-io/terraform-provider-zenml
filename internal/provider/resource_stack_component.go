@@ -34,7 +34,8 @@ func resourceStackComponent() *schema.Resource {
 		Schema: map[string]*schema.Schema{
 			"workspace": {
 				Type:     schema.TypeString,
-				Required: true,
+				Optional: true,
+				Default:  "default",
 				ForceNew: true,
 			},
 			"name": {
