@@ -37,8 +37,6 @@ resource "zenml_service_connector" "gcp" {
   name        = "gcp-${var.environment}"
   type        = "gcp"
   auth_method = "service-account"
-  user        = var.user_id
-  workspace   = var.workspace_id
 
   resource_types = [
     "artifact-store",
@@ -64,17 +62,15 @@ resource "zenml_service_connector" "gcp" {
 
 # Artifact Store Component
 resource "zenml_stack_component" "artifact_store" {
-  name      = "gcs-${var.environment}"
-  type      = "artifact_store"
-  flavor    = "gcp"
-  user      = var.user_id
-  workspace = var.workspace_id
+  name   = "gcs-${var.environment}"
+  type   = "artifact_store"
+  flavor = "gcp"
 
   configuration = {
     path = "gs://${google_storage_bucket.artifacts.name}/artifacts"
   }
 
-  connector = zenml_service_connector.gcp.id
+  connector_id = zenml_service_connector.gcp.id
 
   labels = {
     environment = var.environment
@@ -83,17 +79,15 @@ resource "zenml_stack_component" "artifact_store" {
 
 # Container Registry Component
 resource "zenml_stack_component" "container_registry" {
-  name      = "gcr-${var.environment}"
-  type      = "container_registry"
-  flavor    = "gcp"
-  user      = var.user_id
-  workspace = var.workspace_id
+  name   = "gcr-${var.environment}"
+  type   = "container_registry"
+  flavor = "gcp"
 
   configuration = {
     uri = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.containers.repository_id}"
   }
 
-  connector = zenml_service_connector.gcp.id
+  connector_id = zenml_service_connector.gcp.id
 
   labels = {
     environment = var.environment
@@ -102,11 +96,9 @@ resource "zenml_stack_component" "container_registry" {
 
 # Vertex AI Orchestrator
 resource "zenml_stack_component" "orchestrator" {
-  name      = "vertex-${var.environment}"
-  type      = "orchestrator"
-  flavor    = "vertex"
-  user      = var.user_id
-  workspace = var.workspace_id
+  name   = "vertex-${var.environment}"
+  type   = "orchestrator"
+  flavor = "vertex"
 
   configuration = {
     project     = var.project_id
@@ -114,7 +106,7 @@ resource "zenml_stack_component" "orchestrator" {
     synchronous = true
   }
 
-  connector = zenml_service_connector.gcp.id
+  connector_id = zenml_service_connector.gcp.id
 
   labels = {
     environment = var.environment
