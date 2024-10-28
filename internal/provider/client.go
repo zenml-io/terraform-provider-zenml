@@ -165,8 +165,15 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 			Page:     1,
 			PageSize: 100,
 		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
+		}
 	}
-
+	
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
@@ -248,6 +255,13 @@ func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Pag
 		params = &ListParams{
 			Page:     1,
 			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
 		}
 	}
 	
@@ -331,6 +345,13 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 		params = &ListParams{
 			Page:     1,
 			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
 		}
 	}
 	
