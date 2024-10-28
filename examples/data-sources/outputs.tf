@@ -8,6 +8,11 @@ output "artifact_store_configuration" {
   sensitive = true
 }
 
-output "gcp_connector_resource_types" {
-  value = data.zenml_service_connector.gcp.resource_types
+output "gcp_connector_configuration" {
+  value     = data.zenml_service_connector.gcp.configuration
+  sensitive = true
+}
+
+output "gcp_connector_type" {
+  value = data.zenml_service_connector.gcp.connector_type
 }

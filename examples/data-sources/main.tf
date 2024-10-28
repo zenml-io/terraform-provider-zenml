@@ -14,13 +14,15 @@ provider "zenml" {
 
 # Look up an existing stack by name
 data "zenml_stack" "existing" {
-  name = "production-stack"
+  name      = "production-stack"
+  workspace = var.workspace_id
 }
 
 # Look up a stack component
 data "zenml_stack_component" "artifact_store" {
   name      = "production-artifact-store"
   workspace = var.workspace_id
+  type      = "artifact_store"
 }
 
 # Look up a service connector
