@@ -5,6 +5,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"context"
+	"fmt"
 )
 
 func resourceServiceConnector() *schema.Resource {
@@ -62,7 +63,7 @@ func resourceServiceConnector() *schema.Resource {
 			},
 			"user": {
 				Type:     schema.TypeString,
-				Required: true,
+				Computed: true,
 				ForceNew: true,
 			},
 			"workspace": {
@@ -93,9 +94,24 @@ func resourceServiceConnector() *schema.Resource {
 func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
+	// Get the current user
+	user, err := client.GetCurrentUser()
+	if err != nil {
+		return fmt.Errorf("error getting current user: %w", err)
+	}
+
+	// Get workspace name, defaulting to "default"
+	workspaceName := d.Get("workspace").(string)
+	
+	// Get the workspace ID
+	workspace, err := client.GetWorkspaceByName(workspaceName)
+	if err != nil {
+		return fmt.Errorf("error getting workspace: %w", err)
+	}
+
 	connector := ServiceConnectorRequest{
-		User:          d.Get("user").(string),
-		Workspace:     d.Get("workspace").(string),
+		User:          user.ID,
+		Workspace:     workspace.ID,  // Use the workspace ID from the response
 		Name:          d.Get("name").(string),
 		ConnectorType: d.Get("type").(string),
 		AuthMethod:    d.Get("auth_method").(string),
