@@ -34,7 +34,7 @@ To use the provider in your Terraform configuration:
 terraform {
   required_providers {
     zenml = {
-      source = "zenml-io/zenml"
+      source = "zenml/zenml"
     }
   }
 }
@@ -69,8 +69,6 @@ resource "zenml_service_connector" "gcp" {
   name        = "gcp-connector"
   type        = "gcp"
   auth_method = "service-account"
-  user        = "user-uuid"
-  workspace   = "workspace-uuid"
   
   resource_types = [
     "artifact-store",
@@ -80,26 +78,33 @@ resource "zenml_service_connector" "gcp" {
   
   configuration = {
     project_id = "my-project"
+    region     = "us-central1"
   }
   
   secrets = {
     service_account_json = file("service-account.json")
   }
+  
+  labels = {
+    environment = "production"
+  }
 }
 
 # Create an artifact store component
 resource "zenml_stack_component" "artifact_store" {
-  name      = "gcs-store"
-  type      = "artifact_store"
-  flavor    = "gcp"
-  user      = "user-uuid"
-  workspace = "workspace-uuid"
+  name   = "gcs-store"
+  type   = "artifact_store"
+  flavor = "gcp"
   
   configuration = {
     path = "gs://my-bucket/artifacts"
   }
   
-  connector = zenml_service_connector.gcp.id
+  connector_id = zenml_service_connector.gcp.id
+  
+  labels = {
+    environment = "production"
+  }
 }
 
 # Create a stack using the components
