@@ -98,7 +98,7 @@ resource "zenml_service_connector" "gcp" {
   
   configuration = {
     project_id = "my-project"
-    region     = "us-central1"
+    location   = "us-central1"
   }
   
   secrets = {
