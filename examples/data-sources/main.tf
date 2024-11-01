@@ -2,7 +2,7 @@
 terraform {
   required_providers {
     zenml = {
-      source = "zenml/zenml"
+      source = "zenml-io/zenml"
     }
   }
 }

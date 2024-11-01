@@ -18,7 +18,7 @@ The ZenML provider allows you to manage [ZenML](https://zenml.io) resources usin
 terraform {
   required_providers {
     zenml = {
-      source = "zenml/zenml"
+      source = "zenml-io/zenml"
     }
   }
 }
