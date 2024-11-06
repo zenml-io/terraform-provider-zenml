@@ -16,13 +16,9 @@ func resourceStackComponent() *schema.Resource {
 		Delete: resourceStackComponentDelete,
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
-			// Validate that if connector is set, connector_resource_id should also be set
+			// Validate that if connector_resource_id is set, connector should also be set
 			connector, hasConnector := d.GetOk("connector")
 			connectorResourceID, hasConnectorResourceID := d.GetOk("connector_resource_id")
-
-			if hasConnector && connector.(string) != "" && (!hasConnectorResourceID || connectorResourceID.(string) == "") {
-				return fmt.Errorf("connector_resource_id must be set when connector is specified")
-			}
 
 			if hasConnectorResourceID && connectorResourceID.(string) != "" && (!hasConnector || connector.(string) == "") {
 				return fmt.Errorf("connector must be set when connector_resource_id is specified")
@@ -69,6 +65,10 @@ func resourceStackComponent() *schema.Resource {
 			"connector_id": {
 				Type:     schema.TypeString,
 				Optional: true,
+				// We cannot delete service connectors while they are still in 
+				// use by a component, so we need to force new components when
+				// the connector is changed.
+				ForceNew: true,
 			},
 			"connector_resource_id": {
 				Type:     schema.TypeString,
@@ -224,19 +224,24 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 		update.Labels = labelsMap
 	}
 
-	if d.HasChange("component_spec_path") {
-		if v, ok := d.GetOk("component_spec_path"); ok {
+	// The connector ID and connector resource ID fields are special: they
+	// must always be set in the update request, even if they are not being
+	// changed, because a missing or null value is used to clear the field.
+
+	if v, ok := d.GetOk("connector_id"); ok {
+		str := v.(string)
+		update.ConnectorID = &str
+
+		if v, ok := d.GetOk("connector_resource_id"); ok {
 			str := v.(string)
-			update.ComponentSpecPath = &str
+			update.ConnectorResourceID = &str
+		} else {
+			update.ConnectorResourceID = nil
 		}
+	} else {
+		update.ConnectorID = nil
 	}
 
-	if d.HasChange("connector_id") {
-		if v, ok := d.GetOk("connector_id"); ok {
-			str := v.(string)
-			update.ConnectorID = &str
-		}
-	}
 
 	_, err := client.UpdateComponent(d.Id(), update)
 	if err != nil {

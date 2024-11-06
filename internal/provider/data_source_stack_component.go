@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -14,6 +15,11 @@ func dataSourceStackComponent() *schema.Resource {
 		Description: "Data source for ZenML stack components",
 		ReadContext: dataSourceStackComponentRead,
 		Schema: map[string]*schema.Schema{
+			"id": {
+				Description: "ID of the stack component",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
 			"workspace": {
 				Description: "Name of the workspace (defaults to 'default')",
 				Type:        schema.TypeString,
@@ -23,12 +29,12 @@ func dataSourceStackComponent() *schema.Resource {
 			"name": {
 				Description: "Name of the stack component",
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
 			},
 			"type": {
 				Description: "Type of the stack component",
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
 				ValidateFunc: validation.StringInSlice([]string{
 					"alerter",
 					"annotator",
@@ -66,11 +72,6 @@ func dataSourceStackComponent() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
-			"component_spec_path": {
-				Description: "Path to the component specification file",
-				Type:        schema.TypeString,
-				Computed:    true,
-			},
 			"connector": {
 				Description: "Service connector configuration",
 				Type:        schema.TypeList,
@@ -103,6 +104,10 @@ func dataSourceStackComponent() *schema.Resource {
 					},
 				},
 			},
+			"connector_resource_id": {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 			"created": {
 				Description: "Timestamp when the component was created",
 				Type:        schema.TypeString,
@@ -113,14 +118,6 @@ func dataSourceStackComponent() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
-			"user": {
-				Description: "User who created the component",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
 		},
 	}
 }
@@ -128,30 +125,45 @@ func dataSourceStackComponent() *schema.Resource {
 func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	c := m.(*Client)
 
+	id := d.Get("id").(string)
 	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 	componentType := d.Get("type").(string)
 
-	// List components with filters
-	params := &ListParams{
-		Filter: map[string]string{
-			"name":      name,
-			"workspace": workspace,
-			"type":      componentType,
-		},
+	var component *ComponentResponse = nil
+	var err error = nil
+
+	if id != "" {
+		component, err = c.GetComponent(id)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error getting stack component: %v", err))
+		}
+	} else if name == "" && componentType == "" {
+		// List components with filters
+		params := &ListParams{
+			Filter: map[string]string{
+				"name":      name,
+				"workspace": workspace,
+				"type":      componentType,
+			},
+		}
+
+		components, err := c.ListStackComponents(workspace, params)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error listing stack components: %v", err))
+		}
+
+		if len(components.Items) == 0 {
+			return diag.FromErr(fmt.Errorf("no component found with name %s and type %s in workspace %s",
+				name, componentType, workspace))
+		}
+
+		component = &components.Items[0]
+
+	} else {
+		return diag.FromErr(fmt.Errorf("either 'id' or 'name' and 'type' must be set"))
 	}
 
-	components, err := c.ListStackComponents(workspace, params)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error listing stack components: %v", err))
-	}
-
-	if len(components.Items) == 0 {
-		return diag.FromErr(fmt.Errorf("no component found with name %s and type %s in workspace %s", 
-			name, componentType, workspace))
-	}
-
-	component := components.Items[0]
 	d.SetId(component.ID)
 
 	if err := d.Set("name", component.Name); err != nil {
@@ -170,18 +182,6 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 		if err := d.Set("updated", component.Body.Updated); err != nil {
 			return diag.FromErr(err)
 		}
-
-		if component.Body.User != nil {
-			userData := map[string]interface{}{
-				"id":       component.Body.User.ID,
-				"name":     component.Body.User.Name,
-				"active":   component.Body.User.Body.Active,
-				"is_admin": component.Body.User.Body.IsAdmin,
-			}
-			if err := d.Set("user", userData); err != nil {
-				return diag.FromErr(err)
-			}
-		}
 	}
 
 	if component.Metadata != nil {
@@ -193,18 +193,26 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 			return diag.FromErr(err)
 		}
 
-		if component.Metadata.ComponentSpecPath != nil {
-			if err := d.Set("component_spec_path", *component.Metadata.ComponentSpecPath); err != nil {
-				return diag.FromErr(err)
-			}
-		}
-
 		if component.Metadata.Connector != nil {
+
+			connector_type := ""
+
+			// Unmarshal the connector type, which can be either a string or a struct
+			// Try to unmarshal as string
+			err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connector_type)
+			if err != nil {
+				var type_struct ServiceConnectorType
+				// Try to unmarshal as struct
+				if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &type_struct); err == nil {
+					connector_type = type_struct.ConnectorType
+				}
+			}
+
 			connector := []interface{}{
 				map[string]interface{}{
 					"id":             component.Metadata.Connector.ID,
 					"name":           component.Metadata.Connector.Name,
-					"connector_type": component.Metadata.Connector.Body.ConnectorType,
+					"connector_type": connector_type,
 					"resource_id":    component.Metadata.Connector.Body.ResourceID,
 					"resource_types": component.Metadata.Connector.Body.ResourceTypes,
 				},
@@ -213,6 +221,17 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 				return diag.FromErr(err)
 			}
 		}
+
+		if component.Metadata.ConnectorResourceID != nil {
+			if err := d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID); err != nil {
+				return diag.FromErr(err)
+			}
+		} else {
+			if err := d.Set("connector_resource_id", ""); err != nil {
+				return diag.FromErr(err)
+			}
+		}
+
 	}
 
 	return nil

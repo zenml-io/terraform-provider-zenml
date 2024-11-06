@@ -21,6 +21,17 @@ provider "google" {
 }
 
 # Create GCP resources if needed
+
+resource "google_service_account" "zenml_sa" {
+  account_id   = "zenml-${var.environment}"
+  display_name = "ZenML Service Account"
+}
+
+
+resource "google_service_account_key" "zenml_sa_key" {
+  service_account_id = google_service_account.zenml_sa.name
+}
+
 resource "google_storage_bucket" "artifacts" {
   name     = "${var.project_id}-zenml-artifacts-${var.environment}"
   location = var.region
@@ -38,20 +49,10 @@ resource "zenml_service_connector" "gcp" {
   type        = "gcp"
   auth_method = "service-account"
 
-  resource_types = [
-    "artifact-store",
-    "container-registry",
-    "orchestrator",
-    "step-operator"
-  ]
-
   configuration = {
     project_id = var.project_id
     region     = var.region
-  }
-
-  secrets = {
-    service_account_json = var.gcp_service_account_key
+    service_account_json = "${google_service_account_key.zenml_sa_key.0.private_key}"
   }
 
   labels = {

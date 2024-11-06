@@ -13,6 +13,11 @@ func dataSourceStack() *schema.Resource {
 		Description: "Data source for ZenML stacks",
 		ReadContext: dataSourceStackRead,
 		Schema: map[string]*schema.Schema{
+			"id": {
+				Description: "ID of the stack",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
 			"workspace": {
 				Description: "Name of the workspace (defaults to 'default')",
 				Type:        schema.TypeString,
@@ -22,12 +27,7 @@ func dataSourceStack() *schema.Resource {
 			"name": {
 				Description: "Name of the stack",
 				Type:        schema.TypeString,
-				Required:    true,
-			},
-			"description": {
-				Description: "Description of the stack",
-				Type:        schema.TypeString,
-				Computed:    true,
+				Optional:    true,
 			},
 			"components": {
 				Description: "Components configured in the stack",
@@ -53,13 +53,6 @@ func dataSourceStack() *schema.Resource {
 								Type:     schema.TypeString,
 								Computed: true,
 							},
-							"configuration": {
-								Type:     schema.TypeMap,
-								Computed: true,
-								Elem: &schema.Schema{
-									Type: schema.TypeString,
-								},
-							},
 						},
 					},
 				},
@@ -82,14 +75,6 @@ func dataSourceStack() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
-			"user": {
-				Description: "User who created the stack",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
 		},
 	}
 }
@@ -97,27 +82,42 @@ func dataSourceStack() *schema.Resource {
 func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	c := m.(*Client)
 
+	id := d.Get("id").(string)
 	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 
-	// List stacks with filter to find by name
-	params := &ListParams{
-		Filter: map[string]string{
-			"name":      name,
-			"workspace": workspace,
-		},
+	var stack *StackResponse = nil
+	var err error = nil
+
+	if id != "" {
+		// Get stack by ID
+		stack, err = c.GetStack(id)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error getting stack: %v", err))
+		}
+	} else if name == "" {
+		// List stacks with filter to find by name
+		params := &ListParams{
+			Filter: map[string]string{
+				"name":      name,
+				"workspace": workspace,
+			},
+		}
+
+		stacks, err := c.ListStacks(params)
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("error listing stacks: %v", err))
+		}
+
+		if len(stacks.Items) == 0 {
+			return diag.FromErr(fmt.Errorf("no stack found with name %s in workspace %s", name, workspace))
+		}
+
+		stack = &stacks.Items[0]
+	} else {
+		return diag.FromErr(fmt.Errorf("either 'id' or 'name' must be set"))
 	}
 
-	stacks, err := c.ListStacks(params)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error listing stacks: %v", err))
-	}
-
-	if len(stacks.Items) == 0 {
-		return diag.FromErr(fmt.Errorf("no stack found with name %s in workspace %s", name, workspace))
-	}
-
-	stack := stacks.Items[0]
 	d.SetId(stack.ID)
 
 	if err := d.Set("name", stack.Name); err != nil {
@@ -125,9 +125,6 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 	}
 
 	if stack.Metadata != nil {
-		if err := d.Set("description", stack.Metadata.Description); err != nil {
-			return diag.FromErr(err)
-		}
 
 		if err := d.Set("labels", stack.Metadata.Labels); err != nil {
 			return diag.FromErr(err)
@@ -139,11 +136,10 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 			componentData := make([]interface{}, len(componentList))
 			for i, component := range componentList {
 				componentData[i] = map[string]interface{}{
-					"id":            component.ID,
-					"name":          component.Name,
-					"type":          component.Body.Type,
-					"flavor":        component.Body.Flavor,
-					"configuration": component.Metadata.Configuration,
+					"id":     component.ID,
+					"name":   component.Name,
+					"type":   component.Body.Type,
+					"flavor": component.Body.Flavor,
 				}
 			}
 			components[componentType] = componentData
@@ -160,18 +156,6 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 
 		if err := d.Set("updated", stack.Body.Updated); err != nil {
 			return diag.FromErr(err)
-		}
-
-		if stack.Body.User != nil {
-			userData := map[string]interface{}{
-				"id":       stack.Body.User.ID,
-				"name":     stack.Body.User.Name,
-				"active":   stack.Body.User.Body.Active,
-				"is_admin": stack.Body.User.Body.IsAdmin,
-			}
-			if err := d.Set("user", userData); err != nil {
-				return diag.FromErr(err)
-			}
 		}
 	}
 

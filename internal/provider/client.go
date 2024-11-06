@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
+	"log"
 )
 
 type ListParams struct {
@@ -18,21 +20,75 @@ type ListParams struct {
 type Client struct {
 	ServerURL  string
 	APIKey     string
+	APIToken   string
+	APITokenExpires *time.Time
 	HTTPClient *http.Client
 }
 
-type ServerInfo struct {
-	Version  string            `json:"version"`
-	Metadata map[string]string `json:"metadata"`
-}
-
-func NewClient(serverURL, apiKey string) *Client {
+func NewClient(serverURL, apiKey string, apiToken string) *Client {
 	return &Client{
 		ServerURL:  serverURL,
 		APIKey:     apiKey,
+		APIToken:   apiToken,
+		APITokenExpires: nil,
 		HTTPClient: &http.Client{},
 	}
 }
+
+func (c *Client) getAPIToken() (string, error) {
+	if c.APIToken != "" {
+		if c.APITokenExpires == nil {
+			// No expiry, so just return the token
+			return c.APIToken, nil
+		}
+		// Check if the token has expired
+		if time.Now().Before(*c.APITokenExpires) {
+			// Token is still valid
+			return c.APIToken, nil
+		}
+	}
+
+	if c.APIKey == "" {
+		return "", fmt.Errorf("API key is required to get an API token")
+	}
+
+	// Get a new token from the API key using the password flow
+	data := url.Values{}
+	data.Set("password", c.APIKey)
+	loginReq, err := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
+		bytes.NewBufferString(data.Encode()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("error creating login request: %v", err)
+	}
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResp, err := c.HTTPClient.Do(loginReq)
+	if err != nil {
+		return "", fmt.Errorf("error making login request: %v", err)
+	}
+	defer loginResp.Body.Close()
+	
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("error decoding login response: %v", err)
+	}
+	
+	c.APIToken = tokenResp.AccessToken
+	// Set the expiry time to 5 minutes before the actual expiry, to account for
+	// clock skew and to avoid using an expired token when making requests
+	expiresAt := time.Now().Add(
+		time.Duration(tokenResp.ExpiresIn - 300) * time.Second,
+	)
+	c.APITokenExpires = &expiresAt
+
+	return c.APIToken, nil
+}
+
 
 func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader io.Reader
@@ -50,36 +106,26 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Always get a new token using password flow
-	data := url.Values{}
-	data.Set("password", c.APIKey)
-	loginReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/login", c.ServerURL), bytes.NewBufferString(data.Encode()))
+	accessToken, err := c.getAPIToken()
+
 	if err != nil {
-		return nil, fmt.Errorf("error creating login request: %v", err)
-	}
-	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	loginResp, err := c.HTTPClient.Do(loginReq)
-	if err != nil {
-		return nil, fmt.Errorf("error making login request: %v", err)
-	}
-	defer loginResp.Body.Close()
-	
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
-		return nil, fmt.Errorf("error decoding login response: %v", err)
+		return nil, fmt.Errorf("error getting API token: %v", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResp.AccessToken))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+
+	log.Printf("[ZENML] Making request: %s %s", method, req.URL.String())
+	log.Printf("[ZENML] Request body: %s", bodyReader)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %v", err)
 	}
+
+	log.Printf("[ZENML] Response status: %d", resp.StatusCode)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
@@ -288,6 +334,20 @@ func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Pag
 }
 
 // Service Connector operations...
+func (c *Client) VerifyServiceConnector(connector ServiceConnectorRequest) (*ServiceConnectorResources, error) {
+	resp, err := c.doRequest("POST", "/api/v1/service_connectors/verify", connector)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResources
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
 func (c *Client) CreateServiceConnector(workspace string, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
 	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/service_connectors", workspace)
 	resp, err := c.doRequest("POST", endpoint, connector)
@@ -314,6 +374,9 @@ func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, erro
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("error decoding response: %v", err)
 	}
+
+	log.Printf("[ZENML] Response body: %v", result)
+
 	return &result, nil
 }
 

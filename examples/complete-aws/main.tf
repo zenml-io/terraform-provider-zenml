@@ -19,7 +19,48 @@ provider "aws" {
   region = var.region
 }
 
-# Create AWS resources if needed
+
+resource "aws_iam_user" "iam_user" {
+  name = "${var.name_prefix}-zenml-${var.environment}"
+}
+
+resource "aws_iam_user_policy" "assume_role_policy" {
+  name = "AssumeRole"
+  user = aws_iam_user.iam_user[0].name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_access_key" "iam_user_access_key" {
+  user = aws_iam_user.iam_user[0].name
+}
+
+data "aws_iam_policy_document" "assume_role_policy" {
+  statement {
+    effect = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type = "AWS"
+      identifiers = [aws_iam_user.iam_user[0].arn]
+    }
+  }
+}
+
+resource "aws_iam_role" "stack_access_role" {
+  name               = "${var.name_prefix}-zenml-${var.environment}"
+  assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${var.name_prefix}-zenml-artifacts-${var.environment}"
 }
@@ -35,45 +76,18 @@ resource "aws_ecr_repository" "containers" {
   name = "${var.name_prefix}-zenml-containers-${var.environment}"
 }
 
-# IAM Role for ZenML
-resource "aws_iam_role" "zenml" {
-  name = "${var.name_prefix}-zenml-role-${var.environment}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = [
-            "sagemaker.amazonaws.com",
-            "lambda.amazonaws.com"
-          ]
-        }
-      }
-    ]
-  })
-}
 
 # ZenML Service Connector for AWS
 resource "zenml_service_connector" "aws" {
   name           = "aws-${var.environment}"
   type           = "aws"
   auth_method    = "iam-role"
-  user           = var.user_id
-  workspace      = var.workspace_id
-
-  resource_types = [
-    "artifact-store",
-    "container-registry",
-    "orchestrator",
-    "step-operator"
-  ]
 
   configuration = {
     region   = var.region
-    role_arn = aws_iam_role.zenml.arn
+    role_arn = aws_iam_role.stack_access_role.arn
+    aws_access_key_id = aws_iam_access_key.iam_user_access_key[0].id
+    aws_secret_access_key = aws_iam_access_key.iam_user_access_key[0].secret
   }
 
   labels = {
@@ -87,8 +101,6 @@ resource "zenml_stack_component" "artifact_store" {
   name      = "s3-${var.environment}"
   type      = "artifact_store"
   flavor    = "s3"
-  user      = var.user_id
-  workspace = var.workspace_id
 
   configuration = {
     path = "s3://${aws_s3_bucket.artifacts.bucket}/artifacts"
@@ -106,8 +118,6 @@ resource "zenml_stack_component" "container_registry" {
   name      = "ecr-${var.environment}"
   type      = "container_registry"
   flavor    = "aws"
-  user      = var.user_id
-  workspace = var.workspace_id
 
   configuration = {
     uri = aws_ecr_repository.containers.repository_url
@@ -125,8 +135,6 @@ resource "zenml_stack_component" "orchestrator" {
   name      = "sagemaker-${var.environment}"
   type      = "orchestrator"
   flavor    = "sagemaker"
-  user      = var.user_id
-  workspace = var.workspace_id
 
   configuration = {
     role_arn = aws_iam_role.zenml.arn

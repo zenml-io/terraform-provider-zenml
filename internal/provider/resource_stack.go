@@ -33,6 +33,10 @@ func resourceStack() *schema.Resource {
 					Type: schema.TypeString,
 				},
 				Description: "Map of component types to component IDs",
+				// We cannot delete components while they are still in use
+				// by a stack, so we need to force new stacks when components
+				// are changed.
+				ForceNew: true,
 			},
 			"labels": {
 				Type:     schema.TypeMap,
@@ -91,6 +95,15 @@ func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 			stack.Components = components
 	}
 
+	// Handle labels
+	if v, ok := d.GetOk("labels"); ok {
+		labels := make(map[string]string)
+		for k, v := range v.(map[string]interface{}) {
+			labels[k] = v.(string)
+		}
+		stack.Labels = labels
+	}
+
 	resp, err := client.CreateStack(workspace, stack)
 	if err != nil {
 		return err
@@ -136,6 +149,7 @@ func resourceStackUpdate(d *schema.ResourceData, m interface{}) error {
 	client := m.(*Client)
 
 	name := d.Get("name").(string)
+
 	update := StackUpdate{
 		Name: &name,
 	}

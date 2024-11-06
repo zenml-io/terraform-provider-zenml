@@ -28,14 +28,11 @@ func TestAccServiceConnector_basic(t *testing.T) {
 						"zenml_service_connector.test", "auth_method", "service-account"),
 					resource.TestCheckResourceAttr(
 						"zenml_service_connector.test", "configuration.project_id", "test-project"),
+					resource.TestCheckResourceAttrSet(
+						"zenml_service_connector.test", "configuration.service_account_json"),
 					// Add resource_types validation
 					resource.TestCheckResourceAttr(
-						"zenml_service_connector.test", "resource_types.#", "1"),
-					resource.TestCheckResourceAttr(
-						"zenml_service_connector.test", "resource_types.0", "artifact-store"),
-					// Add at least one secrets check
-					resource.TestCheckResourceAttrSet(
-						"zenml_service_connector.test", "secrets.service_account_json"),
+						"zenml_service_connector.test", "resource_type", "gcs-bucket"),
 				),
 			},
 			{
@@ -43,8 +40,6 @@ func TestAccServiceConnector_basic(t *testing.T) {
 				ResourceName:      "zenml_service_connector.test",
 				ImportState:       true,
 				ImportStateVerify: true,
-				// Don't verify sensitive fields
-				ImportStateVerifyIgnore: []string{"secrets"},
 			},
 		},
 	})
@@ -125,13 +120,10 @@ resource "zenml_service_connector" "test" {
 	workspace   = "%s"
 	user        = "%s"
 	
-	resource_types = ["artifact-store"]
+	resource_types = ["gcs-bucket"]
 	
 	configuration = {
 		project_id = "test-project"
-	}
-	
-	secrets = {
 		service_account_json = jsonencode({
 			"type": "service_account",
 			"project_id": "test-project"
@@ -153,19 +145,10 @@ resource "zenml_service_connector" "test" {
 	auth_method = "service-account"
 	user        = "user-uuid"
 	workspace   = "workspace-uuid"
-	
-	resource_types = [
-		"artifact-store",
-		"container-registry",
-		"orchestrator"
-	]
-	
+		
 	configuration = {
 		project_id = "test-project"
 		region     = "us-central1"
-	}
-	
-	secrets = {
 		service_account_json = jsonencode({
 			"type": "service_account",
 			"project_id": "test-project"
@@ -178,3 +161,4 @@ resource "zenml_service_connector" "test" {
 	}
 }
 `
+}

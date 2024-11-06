@@ -1,6 +1,10 @@
 // Package provider contains data models for the ZenML API
 package provider
 
+import (
+	"encoding/json"
+)
+
 // Page represents a paginated response from the API
 type Page[T any] struct {
 	Index      int   `json:"index"`
@@ -19,11 +23,23 @@ func (e *APIError) Error() string {
 	return e.Detail
 }
 
+// ServerInfo represents the server information response from the API
+type ServerInfo struct {
+	ID       		string     `json:"id"`
+	Name     		string     `json:"name"`
+	Version  		string     `json:"version"`
+	DeploymentType  string	   `json:"deployment_type"`
+	AuthScheme  	string     `json:"auth_scheme"`
+	ServerURL 		string     `json:"server_url"`
+	DashboardURL 	string     `json:"dashboard_url"`
+	Metadata 		map[string]string `json:"metadata"`
+}
+
 // StackRequest represents a request to create a new stack
 type StackRequest struct {
 	Name        string                     `json:"name"`
 	Components  map[string][]string        `json:"components"`          // Change to UUID strings
-	Description string                     `json:"description,omitempty"`
+	Labels 		map[string]string          `json:"labels"`
 }
 
 // StackResponse represents a stack response from the API
@@ -43,18 +59,14 @@ type StackResponseBody struct {
 type StackResponseMetadata struct {
 	Workspace     *WorkspaceResponse              `json:"workspace"`
 	Components    map[string][]ComponentResponse  `json:"components"`
-	Description   string                          `json:"description,omitempty"`
-	StackSpecPath string                          `json:"stack_spec_path,omitempty"`
 	Labels        map[string]string               `json:"labels,omitempty"`
 }
 
 // StackUpdate represents an update to an existing stack
 type StackUpdate struct {
 	Name          *string                        `json:"name,omitempty"`
-	Description   *string                        `json:"description,omitempty"`
 	Components    map[string][]string            `json:"components,omitempty"`    // Only UUIDs for updates
 	Labels        map[string]string              `json:"labels,omitempty"`
-	StackSpecPath *string                        `json:"stack_spec_path,omitempty"`
 }
 
 // ComponentRequest represents a request to create a new component
@@ -68,7 +80,6 @@ type ComponentRequest struct {
 	ConnectorID       *string                    `json:"connector,omitempty"`
 	ConnectorResourceID *string                  `json:"connector_resource_id,omitempty"`
 	Labels            map[string]string          `json:"labels,omitempty"`
-	ComponentSpecPath *string                    `json:"component_spec_path,omitempty"`
 }
 
 // ComponentResponse represents a stack component response from the API
@@ -84,7 +95,7 @@ type ComponentResponseBody struct {
 	Updated    string                  `json:"updated"`
 	User       *UserResponse           `json:"user,omitempty"`
 	Type       string                  `json:"type"`
-	Flavor     string                  `json:"flavor"`
+	Flavor     string                  `json:"flavor_name"`
 	Integration *string                `json:"integration,omitempty"`
 }
 
@@ -92,7 +103,6 @@ type ComponentResponseMetadata struct {
 	Workspace           *WorkspaceResponse       `json:"workspace"`
 	Configuration       map[string]interface{}   `json:"configuration"`
 	Labels              map[string]string        `json:"labels,omitempty"`
-	ComponentSpecPath   *string                  `json:"component_spec_path,omitempty"`
 	ConnectorResourceID *string                  `json:"connector_resource_id,omitempty"`
 	Connector          *ServiceConnectorResponse `json:"connector,omitempty"`
 }
@@ -106,7 +116,6 @@ type ComponentUpdate struct {
 	ConnectorID        *string                   `json:"connector,omitempty"`
 	ConnectorResourceID *string                  `json:"connector_resource_id,omitempty"`
 	Labels             map[string]string         `json:"labels,omitempty"`
-	ComponentSpecPath  *string                   `json:"component_spec_path,omitempty"`
 }
 
 // ServiceConnectorRequest represents a request to create a new service connector
@@ -124,6 +133,28 @@ type ServiceConnectorRequest struct {
 	ExpiresAt      *string                       `json:"expires_at,omitempty"`
 }
 
+type ServiceConnectorResourceType struct {
+    Name		   string                        `json:"name"`
+	ResourceType   string                        `json:"resource_type"`
+	Description	   string                        `json:"description"`
+	AuthMethods    []string                      `json:"auth_methods"`
+	SupportsInstances bool                       `json:"supports_instances"`
+}
+
+type ServiceConnectorAuthenticationMethod struct {
+    Name		   string                        `json:"name"`
+	AuthMethod	 string                        `json:"auth_method"`
+	Description	 string                        `json:"description"`
+}
+
+type ServiceConnectorType struct {
+    Name		   string                        `json:"name"`
+	ConnectorType  string                        `json:"connector_type"`
+	Description	   string                        `json:"description"`
+	ResourceTypes  []ServiceConnectorResourceType `json:"resource_types"`
+	AuthMethods    []ServiceConnectorAuthenticationMethod `json:"auth_methods"`
+}
+
 // ServiceConnectorResponse represents a service connector response from the API
 type ServiceConnectorResponse struct {
 	ID          string                           `json:"id"`
@@ -136,7 +167,7 @@ type ServiceConnectorResponseBody struct {
 	Created        string                        `json:"created"`
 	Updated        string                        `json:"updated"`
 	User           *UserResponse                 `json:"user,omitempty"`
-	ConnectorType  string                        `json:"connector_type"`
+    ConnectorType  json.RawMessage               `json:"connector_type"` // Can be string or ServiceConnectorType
 	AuthMethod     string                        `json:"auth_method"`
 	ResourceTypes  []string                      `json:"resource_types"`
 	ResourceID     *string                       `json:"resource_id,omitempty"`
@@ -150,12 +181,31 @@ type ServiceConnectorResponseMetadata struct {
 	Labels         map[string]string             `json:"labels,omitempty"`
 }
 
+
+// ServiceConnectorResources represents a service connector resources response
+// from the API
+type ServiceConnectorResources struct {
+	ID          string                           `json:"id"`
+	Name        string                           `json:"name"`
+    ConnectorType  json.RawMessage               `json:"connector_type"` // Can be string or ServiceConnectorType
+	Resources   []ServiceConnectorTypedResources `json:"resources"`
+	Error	   *string                           `json:"error,omitempty"`
+}
+
+type ServiceConnectorTypedResources struct {
+	ResourceType  string                        `json:"resource_type"`
+	ResourceIDs   []string                      `json:"resource_ids"`
+	Error         *string                       `json:"error,omitempty"`
+}
+
+
 // ServiceConnectorUpdate represents an update to an existing service connector
 type ServiceConnectorUpdate struct {
 	Name           *string                       `json:"name,omitempty"`
 	Configuration  map[string]interface{}        `json:"configuration,omitempty"`
 	Secrets        map[string]string             `json:"secrets,omitempty"`
 	Labels         map[string]string             `json:"labels,omitempty"`
+	ResourceTypes  []string                      `json:"resource_types"`
 	ResourceID     *string                       `json:"resource_id,omitempty"`
 	ExpiresAt      *string                       `json:"expires_at,omitempty"`
 }

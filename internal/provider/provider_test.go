@@ -27,7 +27,14 @@ func testAccPreCheck(t *testing.T) {
 	if v := os.Getenv("ZENML_SERVER_URL"); v == "" {
 		t.Fatal("ZENML_SERVER_URL must be set for acceptance tests")
 	}
-	if v := os.Getenv("ZENML_API_KEY"); v == "" {
-		t.Fatal("ZENML_API_KEY must be set for acceptance tests")
+	creds := []string{"ZENML_API_KEY", "ZENML_API_TOKEN"}
+	v:=""
+	for _, cred := range creds {
+		v = os.Getenv(cred)
+	}
+	if v == "" {
+		t.Fatal(
+			"ZENML_API_KEY or ZENML_API_TOKEN must be set for acceptance tests",
+		)
 	}
 }
