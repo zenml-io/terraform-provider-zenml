@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -129,7 +130,22 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 
 		// Handle components
 		var components []map[string]string
-		for _, componentList := range stack.Metadata.Components {
+
+		// We need to keep a sorted list of components, otherwise the order
+		// of components will change on each read
+
+		// Extract keys
+		keys := make([]string, 0, len(stack.Metadata.Components))
+		for key, _ := range stack.Metadata.Components {
+			keys = append(keys, key)
+		}
+
+		// Sort keys
+		sort.Strings(keys)
+
+		// Iterate over sorted keys
+		for _, key := range keys {
+			componentList := stack.Metadata.Components[key]
 			var componentData map[string]string
 			for _, component := range componentList {
 				componentData = map[string]string{

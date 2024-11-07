@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"fmt"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
@@ -65,7 +66,7 @@ func resourceStackComponent() *schema.Resource {
 			"connector_id": {
 				Type:     schema.TypeString,
 				Optional: true,
-				// We cannot delete service connectors while they are still in 
+				// We cannot delete service connectors while they are still in
 				// use by a component, so we need to force new components when
 				// the connector is changed.
 				ForceNew: true,
@@ -98,7 +99,7 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	workspaceName := d.Get("workspace").(string)
-	
+
 	// Get the workspace ID
 	workspace, err := client.GetWorkspaceByName(workspaceName)
 	if err != nil {
@@ -107,7 +108,7 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 
 	// Create the component request
 	component := ComponentRequest{
-		User:          user.ID,           // Add the user ID
+		User:          user.ID, // Add the user ID
 		Name:          d.Get("name").(string),
 		Type:          d.Get("type").(string),
 		Flavor:        d.Get("flavor").(string),
@@ -177,15 +178,16 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	d.Set("name", component.Name)
-	
+
 	if component.Body != nil {
 		d.Set("type", component.Body.Type)
 		d.Set("flavor", component.Body.Flavor)
 	}
-	
+
 	if component.Metadata != nil {
 		d.Set("configuration", component.Metadata.Configuration)
-		if component.Metadata.Workspace != nil {
+
+		if component.Metadata.Workspace.Name != "default" {
 			d.Set("workspace", component.Metadata.Workspace.Name)
 		}
 		if component.Metadata.ConnectorResourceID != nil {
@@ -241,7 +243,6 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 	} else {
 		update.ConnectorID = nil
 	}
-
 
 	_, err := client.UpdateComponent(d.Id(), update)
 	if err != nil {

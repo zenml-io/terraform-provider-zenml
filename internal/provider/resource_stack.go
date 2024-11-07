@@ -2,10 +2,11 @@
 package provider
 
 import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func resourceStack() *schema.Resource {
@@ -87,12 +88,12 @@ func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 
 	// Handle components
 	if v, ok := d.GetOk("components"); ok {
-			components := make(map[string][]string)
-			for k, v := range v.(map[string]interface{}) {
-				// Convert single ID to array of IDs since API expects array
-				components[k] = []string{v.(string)}
-			}
-			stack.Components = components
+		components := make(map[string][]string)
+		for k, v := range v.(map[string]interface{}) {
+			// Convert single ID to array of IDs since API expects array
+			components[k] = []string{v.(string)}
+		}
+		stack.Components = components
 	}
 
 	// Handle labels
@@ -139,6 +140,11 @@ func resourceStackRead(d *schema.ResourceData, m interface{}) error {
 
 	// Handle labels if present
 	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+
+		if stack.Metadata.Workspace.Name != "default" {
+			d.Set("workspace", stack.Metadata.Workspace.Name)
+		}
+
 		d.Set("labels", stack.Metadata.Labels)
 	}
 

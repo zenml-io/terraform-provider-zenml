@@ -216,7 +216,9 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	if connector.Metadata != nil {
-		d.Set("workspace", connector.Metadata.Workspace.Name)
+		if connector.Metadata.Workspace.Name != "default" {
+			d.Set("workspace", connector.Metadata.Workspace.Name)
+		}
 		d.Set("configuration", connector.Metadata.Configuration)
 		d.Set("labels", connector.Metadata.Labels)
 	}
