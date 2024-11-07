@@ -5,16 +5,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
 func resourceStackComponent() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceStackComponentCreate,
-		Read:   resourceStackComponentRead,
-		Update: resourceStackComponentUpdate,
-		Delete: resourceStackComponentDelete,
+		CreateContext: resourceStackComponentCreate,
+		ReadContext:   resourceStackComponentRead,
+		UpdateContext: resourceStackComponentUpdate,
+		DeleteContext: resourceStackComponentDelete,
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
 			// Validate that if connector_resource_id is set, connector should also be set
@@ -83,27 +84,30 @@ func resourceStackComponent() *schema.Resource {
 	}
 }
 
-func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client, ok := m.(*Client)
 	if !ok {
-		return fmt.Errorf("invalid client type: expected *Client")
+		return diag.FromErr(fmt.Errorf("invalid client type: expected *Client"))
 	}
 	if client == nil {
-		return fmt.Errorf("client is nil")
+		return diag.FromErr(fmt.Errorf("client is nil"))
 	}
 
 	// Get the current user
-	user, err := client.GetCurrentUser()
+	user, err := client.GetCurrentUser(ctx)
 	if err != nil {
-		return fmt.Errorf("error getting current user: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting current user: %w", err))
 	}
 
 	workspaceName := d.Get("workspace").(string)
 
 	// Get the workspace ID
-	workspace, err := client.GetWorkspaceByName(workspaceName)
+	workspace, err := client.GetWorkspaceByName(ctx, workspaceName)
 	if err != nil {
-		return fmt.Errorf("error getting workspace: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting workspace: %w", err))
+	}
+	if workspace == nil {
+		return diag.FromErr(fmt.Errorf("workspace not found: %s", workspaceName))
 	}
 
 	// Create the component request
@@ -136,12 +140,12 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// Make the API call
-	resp, err := client.CreateComponent(workspace.ID, component)
+	resp, err := client.CreateComponent(ctx, workspace.ID, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
-			return fmt.Errorf("API error: %s", apiErr.Error())
+			return diag.FromErr(fmt.Errorf("API error: %s", apiErr.Error()))
 		}
-		return fmt.Errorf("failed to create component: %w", err)
+		return diag.FromErr(fmt.Errorf("failed to create component: %w", err))
 	}
 
 	// Set the ID from the response
@@ -166,15 +170,20 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 
-func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client, ok := m.(*Client)
 	if !ok {
-		return fmt.Errorf("invalid client type: expected *Client")
+		return diag.FromErr(fmt.Errorf("invalid client type: expected *Client"))
 	}
 
-	component, err := client.GetComponent(d.Id())
+	component, err := client.GetComponent(ctx, d.Id())
 	if err != nil {
-		return fmt.Errorf("error getting component: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting component: %w", err))
+	}
+
+	if component == nil {
+		d.SetId("")
+		return nil
 	}
 
 	d.Set("name", component.Name)
@@ -201,7 +210,7 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 
-func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	// Create update with proper string pointer for name
@@ -244,20 +253,20 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 		update.ConnectorID = nil
 	}
 
-	_, err := client.UpdateComponent(d.Id(), update)
+	_, err := client.UpdateComponent(ctx, d.Id(), update)
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error updating component: %w", err))
 	}
 
-	return resourceStackComponentRead(d, m)
+	return resourceStackComponentRead(ctx, d, m)
 }
 
-func resourceStackComponentDelete(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	err := client.DeleteComponent(d.Id())
+	err := client.DeleteComponent(ctx, d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error deleting component: %w", err))
 	}
 
 	d.SetId("")

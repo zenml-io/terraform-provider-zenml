@@ -44,7 +44,7 @@ func Provider() *schema.Provider {
 	}
 }
 
-func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	serverURL := d.Get("server_url").(string)
@@ -56,22 +56,25 @@ func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, 
 		return nil, diag.Errorf("server_url must be configured")
 	}
 	if apiKey == "" && apiToken == "" {
-		return nil, diag.Errorf(`an API key or an API token must be configured for the ZenML Terraform provider to be able to authenticate with your ZenML server.
+		return nil, diag.Diagnostics{
+			diag.Diagnostic{
+				Severity: diag.Error,
+				Summary:  "An API key or an API token must be configured for the ZenML Terraform provider to be able to authenticate with your ZenML server.",
+				Detail: `
+It is recommended to use an API key for long-term Terraform management operations, as API tokens expire after a short period of time.
 
-		It is recommended to use an API key for long-term Terraform management operations, as API tokens expire after a short period of time.
-		
-		More information on how to configure a service account and an API key can be found at https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account.
-		
-		To configure the ZenML Terraform provider with an API key, add the following block to your Terraform configuration:
-		
-		provider "zenml" {
-			server_url = "https://example.zenml.io"
-			api_key   = "your api key"
+More information on how to configure a service account and an API key can be found at https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account.
+
+To configure the ZenML Terraform provider with an API key, add the following block to your Terraform configuration:
+
+provider "zenml" {
+	server_url = "https://example.zenml.io"
+	api_key   = "your api key"
+}
+
+or use the ZENML_API_KEY environment variable to set the API key.`,
+			},
 		}
-		
-		or use the ZENML_API_KEY environment variable to set the API key.
-		`)
-
 	}
 
 	client := NewClient(serverURL, apiKey, apiToken)
@@ -81,7 +84,7 @@ func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, 
 
 	// Test the client connection
 	// You might want to add a simple API call here to verify the connection
-	client.GetServerInfo()
+	client.GetServerInfo(ctx)
 
 	return client, diags
 }

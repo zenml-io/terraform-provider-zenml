@@ -89,7 +89,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 
 	if id != "" {
 		// Get stack by ID
-		stack, err = c.GetStack(id)
+		stack, err = c.GetStack(ctx, id)
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error getting stack: %v", err))
 		}
@@ -102,7 +102,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 			},
 		}
 
-		stacks, err := c.ListStacks(params)
+		stacks, err := c.ListStacks(ctx, params)
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error listing stacks: %v", err))
 		}
@@ -114,6 +114,12 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 		stack = &stacks.Items[0]
 	} else {
 		return diag.FromErr(fmt.Errorf("either 'id' or 'name' must be set"))
+	}
+
+	if stack == nil {
+		// Stack not found
+		d.SetId("")
+		return nil
 	}
 
 	d.SetId(stack.ID)

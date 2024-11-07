@@ -16,9 +16,9 @@ import (
 func resourceServiceConnector() *schema.Resource {
 	return &schema.Resource{
 		CreateContext: resourceServiceConnectorCreate,
-		Read:          resourceServiceConnectorRead,
+		ReadContext:   resourceServiceConnectorRead,
 		UpdateContext: resourceServiceConnectorUpdate,
-		Delete:        resourceServiceConnectorDelete,
+		DeleteContext: resourceServiceConnectorDelete,
 
 		Schema: map[string]*schema.Schema{
 			"name": {
@@ -88,10 +88,10 @@ func resourceServiceConnector() *schema.Resource {
 	}
 }
 
-func getConnectorRequest(d *schema.ResourceData, client *Client) (*ServiceConnectorRequest, error) {
+func getConnectorRequest(ctx context.Context, d *schema.ResourceData, client *Client) (*ServiceConnectorRequest, error) {
 
 	// Get the current user
-	user, err := client.GetCurrentUser()
+	user, err := client.GetCurrentUser(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting current user: %w", err)
 	}
@@ -100,9 +100,11 @@ func getConnectorRequest(d *schema.ResourceData, client *Client) (*ServiceConnec
 	workspaceName := d.Get("workspace").(string)
 
 	// Get the workspace ID
-	workspace, err := client.GetWorkspaceByName(workspaceName)
+	workspace, err := client.GetWorkspaceByName(ctx, workspaceName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting workspace: %w", err)
+	} else if workspace == nil {
+		return nil, fmt.Errorf("workspace not found: %s", workspaceName)
 	}
 
 	connector := ServiceConnectorRequest{
@@ -152,14 +154,14 @@ func getConnectorRequest(d *schema.ResourceData, client *Client) (*ServiceConnec
 func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	connector, err := getConnectorRequest(d, client)
+	connector, err := getConnectorRequest(ctx, d, client)
 
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
 	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		verify, err := client.VerifyServiceConnector(*connector)
+		verify, err := client.VerifyServiceConnector(ctx, *connector)
 		if err != nil {
 			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
 		}
@@ -168,33 +170,33 @@ func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData,
 			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
 		}
 
-		resp, err := client.CreateServiceConnector(connector.Workspace, *connector)
+		resp, err := client.CreateServiceConnector(ctx, connector.Workspace, *connector)
 		if err != nil {
 			return retry.NonRetryableError(fmt.Errorf("Error creating service connector: %s", err))
 		}
 
 		d.SetId(resp.ID)
-		err = resourceServiceConnectorRead(d, m)
 
-		if err != nil {
-			return retry.NonRetryableError(err)
-		} else {
-			return nil
-		}
+		return nil
+
 	})
 
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	return nil
+	return resourceServiceConnectorRead(ctx, d, m)
 }
 
-func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
+func resourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	connector, err := client.GetServiceConnector(d.Id())
+	connector, err := client.GetServiceConnector(ctx, d.Id())
 	if err != nil {
+		return diag.FromErr(fmt.Errorf("error getting service connector: %s", err))
+	}
+
+	if connector == nil {
 		d.SetId("")
 		return nil
 	}
@@ -218,7 +220,7 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 			if err = json.Unmarshal(connector.Body.ConnectorType, &type_struct); err == nil {
 				connector_type = type_struct.ConnectorType
 			} else {
-				return fmt.Errorf("error unmarshalling connector type: %s", err)
+				return diag.FromErr(fmt.Errorf("error unmarshalling connector type: %s", err))
 			}
 
 		}
@@ -250,14 +252,14 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 func resourceServiceConnectorUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	connector, err := getConnectorRequest(d, client)
+	connector, err := getConnectorRequest(ctx, d, client)
 
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
 	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		resources, err := client.VerifyServiceConnector(*connector)
+		resources, err := client.VerifyServiceConnector(ctx, *connector)
 		if err != nil {
 			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
 		}
@@ -318,33 +320,27 @@ func resourceServiceConnectorUpdate(ctx context.Context, d *schema.ResourceData,
 			update.ResourceTypes = []string{}
 		}
 
-		_, err = client.UpdateServiceConnector(d.Id(), update)
+		_, err = client.UpdateServiceConnector(ctx, d.Id(), update)
 		if err != nil {
 			return retry.NonRetryableError(fmt.Errorf("Error updating service connector: %s", err))
 		}
 
-		err = resourceServiceConnectorRead(d, m)
-
-		if err != nil {
-			return retry.NonRetryableError(err)
-		} else {
-			return nil
-		}
+		return nil
 	})
 
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	return nil
+	return resourceServiceConnectorRead(ctx, d, m)
 }
 
-func resourceServiceConnectorDelete(d *schema.ResourceData, m interface{}) error {
+func resourceServiceConnectorDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	err := client.DeleteServiceConnector(d.Id())
+	err := client.DeleteServiceConnector(ctx, d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error deleting service connector: %s", err))
 	}
 
 	d.SetId("")

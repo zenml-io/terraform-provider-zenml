@@ -97,14 +97,19 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 	var connector *ServiceConnectorResponse = nil
 
 	if id != "" {
-		connector, err = c.GetServiceConnector(id)
+		connector, err = c.GetServiceConnector(ctx, id)
 	} else if name != "" {
-		connector, err = c.GetServiceConnectorByName(workspace, name)
+		connector, err = c.GetServiceConnectorByName(ctx, workspace, name)
 	} else {
 		return diag.FromErr(fmt.Errorf("either 'id' or 'name' must be set"))
 	}
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("error getting service connector: %v", err))
+	}
+	if connector == nil {
+		// Connector not found
+		d.SetId("")
+		return nil
 	}
 
 	d.SetId(connector.ID)

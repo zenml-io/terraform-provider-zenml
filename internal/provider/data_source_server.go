@@ -58,7 +58,7 @@ func dataSourceServer() *schema.Resource {
 func dataSourceServerRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	c := m.(*Client)
 
-	server, err := c.GetServerInfo()
+	server, err := c.GetServerInfo(ctx)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("error fetching server info: %v", err))
 	}

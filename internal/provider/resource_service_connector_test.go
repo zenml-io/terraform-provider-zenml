@@ -2,6 +2,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -85,7 +86,7 @@ func testAccCheckServiceConnectorExists(n string) resource.TestCheckFunc {
 		}
 
 		client := testAccProvider.Meta().(*Client)
-		_, err := client.GetServiceConnector(rs.Primary.ID)
+		_, err := client.GetServiceConnector(context.Background(), rs.Primary.ID)
 		if err != nil {
 			return fmt.Errorf("Service Connector not found: %v", err)
 		}
@@ -102,7 +103,7 @@ func testAccCheckServiceConnectorDestroy(s *terraform.State) error {
 			continue
 		}
 
-		_, err := client.GetServiceConnector(rs.Primary.ID)
+		_, err := client.GetServiceConnector(context.Background(), rs.Primary.ID)
 		if err == nil {
 			return fmt.Errorf("Service Connector still exists")
 		}

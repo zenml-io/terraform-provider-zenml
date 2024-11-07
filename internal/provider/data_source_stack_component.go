@@ -134,7 +134,7 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 	var err error = nil
 
 	if id != "" {
-		component, err = c.GetComponent(id)
+		component, err = c.GetComponent(ctx, id)
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error getting stack component: %v", err))
 		}
@@ -148,7 +148,7 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 			},
 		}
 
-		components, err := c.ListStackComponents(workspace, params)
+		components, err := c.ListStackComponents(ctx, workspace, params)
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error listing stack components: %v", err))
 		}
@@ -162,6 +162,12 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 
 	} else {
 		return diag.FromErr(fmt.Errorf("either 'id' or 'name' and 'type' must be set"))
+	}
+
+	if component == nil {
+		// Component not found
+		d.SetId("")
+		return nil
 	}
 
 	d.SetId(component.ID)
