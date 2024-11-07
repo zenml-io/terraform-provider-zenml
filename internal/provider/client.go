@@ -46,10 +46,28 @@ func (c *Client) getAPIToken() (string, error) {
 			// Token is still valid
 			return c.APIToken, nil
 		}
-	}
+		if c.APIKey == "" {
+			// Token has expired and we can't refresh it
+			return "", fmt.Errorf(`The API token configured for the ZenML Terraform provider has expired.
 
-	if c.APIKey == "" {
-		return "", fmt.Errorf("API key is required to get an API token")
+Please reconfigure the provider with a new API token or an API key.
+It is recommended to use an API key for long-term Terraform management operations, as API tokens expire after a short period of time.
+
+More information on how to configure a service account and an API key can be found at https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account.
+
+To configure the ZenML Terraform provider, add the following block to your Terraform configuration:
+
+provider "zenml" {
+	server_url = "https://example.zenml.io"
+	api_key   = "your api key"
+}
+
+or use the ZENML_API_KEY environment variable to set the API key.
+`)
+		}
+	} else if c.APIKey == "" {
+		// Shouldn't happen, as the provider should have already validated this.
+		return "", fmt.Errorf("an API key or an API token must be configured for the ZenML Terraform provider to be able to authenticate with your ZenML server")
 	}
 
 	// Get a new token from the API key using the password flow
