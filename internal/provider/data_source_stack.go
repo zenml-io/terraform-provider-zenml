@@ -31,28 +31,25 @@ func dataSourceStack() *schema.Resource {
 			},
 			"components": {
 				Description: "Components configured in the stack",
-				Type:        schema.TypeMap,
+				Type:        schema.TypeList,
 				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeList,
-					Elem: &schema.Resource{
-						Schema: map[string]*schema.Schema{
-							"id": {
-								Type:     schema.TypeString,
-								Computed: true,
-							},
-							"name": {
-								Type:     schema.TypeString,
-								Computed: true,
-							},
-							"type": {
-								Type:     schema.TypeString,
-								Computed: true,
-							},
-							"flavor": {
-								Type:     schema.TypeString,
-								Computed: true,
-							},
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"id": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"name": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"type": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"flavor": {
+							Type:     schema.TypeString,
+							Computed: true,
 						},
 					},
 				},
@@ -131,18 +128,20 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 		}
 
 		// Handle components
-		components := make(map[string][]interface{})
-		for componentType, componentList := range stack.Metadata.Components {
-			componentData := make([]interface{}, len(componentList))
-			for i, component := range componentList {
-				componentData[i] = map[string]interface{}{
+		var components []map[string]string
+		for _, componentList := range stack.Metadata.Components {
+			var componentData map[string]string
+			for _, component := range componentList {
+				componentData = map[string]string{
 					"id":     component.ID,
 					"name":   component.Name,
 					"type":   component.Body.Type,
 					"flavor": component.Body.Flavor,
 				}
+				// Only take the first component of each type
+				break
 			}
-			components[componentType] = componentData
+			components = append(components, componentData)
 		}
 		if err := d.Set("components", components); err != nil {
 			return diag.FromErr(err)

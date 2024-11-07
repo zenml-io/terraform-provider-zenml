@@ -113,6 +113,18 @@ zenml service-account create <MYSERVICEACCOUNTNAME>
 
 This command will print out the ZENML_API_KEY that you can use with this provider.
 
+#### API Token
+
+Alternatively, you can use an API token for authentication, but this is not recommended for production use because API
+tokens can expire:
+
+```hcl
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_token  = "your-api-token"
+}
+```
+
 ## Provider Arguments
 
 * `server_url` - (Optional) The URL of your ZenML server. Can be set with the `ZENML_SERVER_URL` environment variable.

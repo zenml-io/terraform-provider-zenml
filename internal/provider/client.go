@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
-	"log"
 )
 
 type ListParams struct {
@@ -18,20 +18,20 @@ type ListParams struct {
 }
 
 type Client struct {
-	ServerURL  string
-	APIKey     string
-	APIToken   string
+	ServerURL       string
+	APIKey          string
+	APIToken        string
 	APITokenExpires *time.Time
-	HTTPClient *http.Client
+	HTTPClient      *http.Client
 }
 
 func NewClient(serverURL, apiKey string, apiToken string) *Client {
 	return &Client{
-		ServerURL:  serverURL,
-		APIKey:     apiKey,
-		APIToken:   apiToken,
+		ServerURL:       serverURL,
+		APIKey:          apiKey,
+		APIToken:        apiToken,
 		APITokenExpires: nil,
-		HTTPClient: &http.Client{},
+		HTTPClient:      &http.Client{},
 	}
 }
 
@@ -69,7 +69,7 @@ func (c *Client) getAPIToken() (string, error) {
 		return "", fmt.Errorf("error making login request: %v", err)
 	}
 	defer loginResp.Body.Close()
-	
+
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
@@ -77,18 +77,17 @@ func (c *Client) getAPIToken() (string, error) {
 	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
 		return "", fmt.Errorf("error decoding login response: %v", err)
 	}
-	
+
 	c.APIToken = tokenResp.AccessToken
 	// Set the expiry time to 5 minutes before the actual expiry, to account for
 	// clock skew and to avoid using an expired token when making requests
 	expiresAt := time.Now().Add(
-		time.Duration(tokenResp.ExpiresIn - 300) * time.Second,
+		time.Duration(tokenResp.ExpiresIn-300) * time.Second,
 	)
 	c.APITokenExpires = &expiresAt
 
 	return c.APIToken, nil
 }
-
 
 func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader io.Reader
@@ -118,20 +117,39 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	}
 
 	log.Printf("[ZENML] Making request: %s %s", method, req.URL.String())
-	log.Printf("[ZENML] Request body: %s", bodyReader)
+	if body != nil {
+		prettyJSON, _ := json.MarshalIndent(body, "", "  ")
+		log.Printf("[ZENML] Request body (JSON):\n%s", prettyJSON)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %v", err)
 	}
 
+	// Read the response body once and store it in a variable
+	defer resp.Body.Close()
+	resp_body, _ := io.ReadAll(resp.Body)
+
+	// Print the response body as JSON if available
+	if len(resp_body) > 0 {
+		var prettyBody map[string]interface{}
+		if err := json.Unmarshal(resp_body, &prettyBody); err == nil {
+			prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
+			log.Printf("[ZENML] Response body (JSON):\n%s", prettyJSON)
+		} else {
+			log.Printf("[ZENML] Response body:\n%s", string(resp_body))
+		}
+	}
+
 	log.Printf("[ZENML] Response status: %d", resp.StatusCode)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(resp_body))
 	}
+
+	// Re-wrap the body so that the caller can still read it
+	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
 
 	return resp, nil
 }
@@ -219,15 +237,15 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
-	
+
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/stacks?%s", query.Encode())
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
@@ -310,14 +328,14 @@ func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Pag
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/workspaces/%s/components?%s", workspace, query.Encode())
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
@@ -417,14 +435,14 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/service_connectors?%s", query.Encode())
 	resp, err := c.doRequest("GET", path, nil)
 	if err != nil {
@@ -444,20 +462,20 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 func (c *Client) GetServiceConnectorByName(workspace, name string) (*ServiceConnectorResponse, error) {
 	params := &ListParams{
 		Filter: map[string]string{
-			"name": name,
+			"name":      name,
 			"workspace": workspace,
 		},
 	}
-	
+
 	connectors, err := c.ListServiceConnectors(params)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(connectors.Items) == 0 {
 		return nil, fmt.Errorf("no service connector found with name %s", name)
 	}
-	
+
 	return &connectors.Items[0], nil
 }
 
@@ -491,4 +509,3 @@ func (c *Client) GetCurrentUser() (*UserResponse, error) {
 	}
 	return &result, nil
 }
-

@@ -196,16 +196,27 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 		if component.Metadata.Connector != nil {
 
 			connector_type := ""
+			resource_id := ""
+			resource_types := []string{}
 
-			// Unmarshal the connector type, which can be either a string or a struct
-			// Try to unmarshal as string
-			err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connector_type)
-			if err != nil {
-				var type_struct ServiceConnectorType
-				// Try to unmarshal as struct
-				if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &type_struct); err == nil {
-					connector_type = type_struct.ConnectorType
+			if component.Metadata.Connector.Body != nil {
+
+				// Unmarshal the connector type, which can be either a string or a struct
+				// Try to unmarshal as string
+				err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connector_type)
+				if err != nil {
+					var type_struct ServiceConnectorType
+					// Try to unmarshal as struct
+					if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &type_struct); err == nil {
+						connector_type = type_struct.ConnectorType
+					}
 				}
+
+				if component.Metadata.Connector.Body.ResourceID != nil {
+					resource_id = *component.Metadata.Connector.Body.ResourceID
+				}
+
+				resource_types = component.Metadata.Connector.Body.ResourceTypes
 			}
 
 			connector := []interface{}{
@@ -213,8 +224,8 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 					"id":             component.Metadata.Connector.ID,
 					"name":           component.Metadata.Connector.Name,
 					"connector_type": connector_type,
-					"resource_id":    component.Metadata.Connector.Body.ResourceID,
-					"resource_types": component.Metadata.Connector.Body.ResourceTypes,
+					"resource_id":    resource_id,
+					"resource_types": resource_types,
 				},
 			}
 			if err := d.Set("connector", connector); err != nil {
