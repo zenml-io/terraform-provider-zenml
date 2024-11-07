@@ -99,6 +99,11 @@ export ZENML_API_TOKEN="your-api-token"
 
 ### Example Usage
 
+> **Hint:** The ZenML Terraform provider is being heavily used in all our Terraform modules. Their code is available on GitHub and can be used as a reference:
+> - [zenml-stack/aws](https://github.com/zenml-io/terraform-aws-zenml-stack)
+> - [zenml-stack/gcp](https://github.com/zenml-io/terraform-gcp-zenml-stack)
+> - [zenml-stack/azure](https://github.com/zenml-io/terraform-azure-zenml-stack)
+
 Here's a basic example of creating a stack with components:
 
 ```hcl
