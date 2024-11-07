@@ -5,17 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
 func resourceServiceConnector() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceServiceConnectorCreate,
-		Read:   resourceServiceConnectorRead,
-		Update: resourceServiceConnectorUpdate,
-		Delete: resourceServiceConnectorDelete,
+		CreateContext: resourceServiceConnectorCreate,
+		Read:          resourceServiceConnectorRead,
+		UpdateContext: resourceServiceConnectorUpdate,
+		Delete:        resourceServiceConnectorDelete,
 
 		Schema: map[string]*schema.Schema{
 			"name": {
@@ -77,6 +80,10 @@ func resourceServiceConnector() *schema.Resource {
 
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
+		},
+		Timeouts: &schema.ResourceTimeout{
+			Create: schema.DefaultTimeout(5 * time.Minute),
+			Update: schema.DefaultTimeout(5 * time.Minute),
 		},
 	}
 }
@@ -142,31 +149,45 @@ func getConnectorRequest(d *schema.ResourceData, client *Client) (*ServiceConnec
 	return &connector, nil
 }
 
-func resourceServiceConnectorCreate(d *schema.ResourceData, m interface{}) error {
+func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	connector, err := getConnectorRequest(d, client)
 
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
-	verify, err := client.VerifyServiceConnector(*connector)
+	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
+		verify, err := client.VerifyServiceConnector(*connector)
+		if err != nil {
+			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
+		}
+
+		if verify.Error != nil {
+			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
+		}
+
+		resp, err := client.CreateServiceConnector(connector.Workspace, *connector)
+		if err != nil {
+			return retry.NonRetryableError(fmt.Errorf("Error creating service connector: %s", err))
+		}
+
+		d.SetId(resp.ID)
+		err = resourceServiceConnectorRead(d, m)
+
+		if err != nil {
+			return retry.NonRetryableError(err)
+		} else {
+			return nil
+		}
+	})
+
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
-	if verify.Error != nil {
-		return fmt.Errorf("error verifying service connector: %s", *verify.Error)
-	}
-
-	resp, err := client.CreateServiceConnector(connector.Workspace, *connector)
-	if err != nil {
-		return err
-	}
-
-	d.SetId(resp.ID)
-	return resourceServiceConnectorRead(d, m)
+	return nil
 }
 
 func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
@@ -226,83 +247,96 @@ func resourceServiceConnectorRead(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 
-func resourceServiceConnectorUpdate(d *schema.ResourceData, m interface{}) error {
+func resourceServiceConnectorUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	connector, err := getConnectorRequest(d, client)
 
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
-	resources, err := client.VerifyServiceConnector(*connector)
+	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
+		resources, err := client.VerifyServiceConnector(*connector)
+		if err != nil {
+			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
+		}
+
+		if resources.Error != nil {
+			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *resources.Error))
+		}
+
+		update := ServiceConnectorUpdate{}
+
+		if d.HasChange("name") {
+			name := d.Get("name").(string)
+			update.Name = &name
+		}
+
+		// The `configuration` field represents a full valid configuration update,
+		// not just a partial update. If it is set (i.e. not None) in the update,
+		// the value will replace the existing configuration value. For this
+		// reason, we always include the configuration in the update request.
+
+		// Handle configuration
+		configMap := make(map[string]interface{})
+		if v, ok := d.GetOk("configuration"); ok {
+			for k, v := range v.(map[string]interface{}) {
+				configMap[k] = v
+			}
+		}
+		update.Configuration = configMap
+
+		// The `labels` field is also a full labels update: if set (i.e. not
+		// `None`), all existing labels are removed and replaced by the new labels
+		// in the update.
+
+		labelsMap := make(map[string]string)
+		if d.HasChange("labels") {
+			for k, v := range d.Get("labels").(map[string]interface{}) {
+				labelsMap[k] = v.(string)
+			}
+		}
+		update.Labels = labelsMap
+
+		// The `resource_id` field value is also a full replacement value: if not
+		// set in the request, the resource ID is removed from the service
+		// connector.
+		if v, ok := d.GetOk("resource_id"); ok {
+			resourceID := v.(string)
+			update.ResourceID = &resourceID
+		} else {
+			update.ResourceID = nil
+		}
+
+		// Handle resource type
+		if v, ok := d.GetOk("resource_type"); ok {
+			resourceType := v.(string)
+			resourceTypes := []string{resourceType}
+			update.ResourceTypes = resourceTypes
+		} else {
+			update.ResourceTypes = []string{}
+		}
+
+		_, err = client.UpdateServiceConnector(d.Id(), update)
+		if err != nil {
+			return retry.NonRetryableError(fmt.Errorf("Error updating service connector: %s", err))
+		}
+
+		err = resourceServiceConnectorRead(d, m)
+
+		if err != nil {
+			return retry.NonRetryableError(err)
+		} else {
+			return nil
+		}
+	})
 
 	if err != nil {
-		return err
+		return diag.FromErr(err)
 	}
 
-	if resources.Error != nil {
-		return fmt.Errorf("error verifying service connector update: %s", *resources.Error)
-	}
-
-	update := ServiceConnectorUpdate{}
-
-	if d.HasChange("name") {
-		name := d.Get("name").(string)
-		update.Name = &name
-	}
-
-	// The `configuration` field represents a full valid configuration update,
-	// not just a partial update. If it is set (i.e. not None) in the update,
-	// the value will replace the existing configuration value. For this
-	// reason, we always include the configuration in the update request.
-
-	// Handle configuration
-	configMap := make(map[string]interface{})
-	if v, ok := d.GetOk("configuration"); ok {
-		for k, v := range v.(map[string]interface{}) {
-			configMap[k] = v
-		}
-	}
-	update.Configuration = configMap
-
-	// The `labels` field is also a full labels update: if set (i.e. not
-	// `None`), all existing labels are removed and replaced by the new labels
-	// in the update.
-
-	labelsMap := make(map[string]string)
-	if d.HasChange("labels") {
-		for k, v := range d.Get("labels").(map[string]interface{}) {
-			labelsMap[k] = v.(string)
-		}
-	}
-	update.Labels = labelsMap
-
-	// The `resource_id` field value is also a full replacement value: if not
-	// set in the request, the resource ID is removed from the service
-	// connector.
-	if v, ok := d.GetOk("resource_id"); ok {
-		resourceID := v.(string)
-		update.ResourceID = &resourceID
-	} else {
-		update.ResourceID = nil
-	}
-
-	// Handle resource type
-	if v, ok := d.GetOk("resource_type"); ok {
-		resourceType := v.(string)
-		resourceTypes := []string{resourceType}
-		update.ResourceTypes = resourceTypes
-	} else {
-		update.ResourceTypes = []string{}
-	}
-
-	_, err = client.UpdateServiceConnector(d.Id(), update)
-	if err != nil {
-		return err
-	}
-
-	return resourceServiceConnectorRead(d, m)
+	return nil
 }
 
 func resourceServiceConnectorDelete(d *schema.ResourceData, m interface{}) error {
