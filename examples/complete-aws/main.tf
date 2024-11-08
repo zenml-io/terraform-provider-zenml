@@ -1,11 +1,11 @@
-# examples/complete-aws/main.tf
 terraform {
   required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 4.0"
+    }
     zenml = {
       source = "zenml-io/zenml"
-    }
-    aws = {
-      source = "hashicorp/aws"
     }
   }
 }
@@ -19,14 +19,29 @@ provider "aws" {
   region = var.region
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# Create S3 bucket for ZenML artifacts
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${data.aws_caller_identity.current.account_id}-zenml-artifacts-${var.environment}"
+}
+
+# Create ECR repository for ZenML containers
+
+resource "aws_ecr_repository" "containers" {
+  name = "zenml-containers-${var.environment}"
+}
+
+# Create IAM user and role with required permissions and keys
 
 resource "aws_iam_user" "iam_user" {
-  name = "${var.name_prefix}-zenml-${var.environment}"
+  name = "zenml-${var.environment}"
 }
 
 resource "aws_iam_user_policy" "assume_role_policy" {
   name = "AssumeRole"
-  user = aws_iam_user.iam_user[0].name
+  user = aws_iam_user.iam_user.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -41,41 +56,101 @@ resource "aws_iam_user_policy" "assume_role_policy" {
 }
 
 resource "aws_iam_access_key" "iam_user_access_key" {
-  user = aws_iam_user.iam_user[0].name
+  user = aws_iam_user.iam_user.name
 }
 
-data "aws_iam_policy_document" "assume_role_policy" {
-  statement {
-    effect = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type = "AWS"
-      identifiers = [aws_iam_user.iam_user[0].arn]
-    }
-  }
+resource "aws_iam_role" "zenml" {
+  name               = "zenml-${var.environment}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_iam_user.iam_user.arn
+        }
+        Action = "sts:AssumeRole"
+      },
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "sagemaker.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
 }
 
-resource "aws_iam_role" "stack_access_role" {
-  name               = "${var.name_prefix}-zenml-${var.environment}"
-  assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
+
+resource "aws_iam_role_policy" "s3_policy" {
+  name = "S3Policy"
+  role = aws_iam_role.zenml.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetBucketVersioning"
+        ]
+        Resource = [
+          aws_s3_bucket.artifacts.arn,
+          "${aws_s3_bucket.artifacts.arn}/*"
+        ]
+      }
+    ]
+  })
 }
 
-resource "aws_s3_bucket" "artifacts" {
-  bucket = "${var.name_prefix}-zenml-artifacts-${var.environment}"
+resource "aws_iam_role_policy" "ecr_policy" {
+  name = "ECRPolicy"
+  role = aws_iam_role.zenml.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:DescribeRegistry",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage"
+        ]
+        Resource = aws_ecr_repository.containers.arn
+      },
+      {
+        Effect = "Allow"
+        Action = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:DescribeRepositories",
+          "ecr:ListRepositories"
+        ]
+        Resource = "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/*"
+      }
+    ]
+  })
 }
 
-resource "aws_s3_bucket_versioning" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-  versioning_configuration {
-    status = "Enabled"
-  }
+resource aws_iam_role_policy_attachment "sagemaker_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+  role = aws_iam_role.zenml.name
 }
-
-resource "aws_ecr_repository" "containers" {
-  name = "${var.name_prefix}-zenml-containers-${var.environment}"
-}
-
 
 # ZenML Service Connector for AWS
 resource "zenml_service_connector" "aws" {
@@ -85,9 +160,9 @@ resource "zenml_service_connector" "aws" {
 
   configuration = {
     region   = var.region
-    role_arn = aws_iam_role.stack_access_role.arn
-    aws_access_key_id = aws_iam_access_key.iam_user_access_key[0].id
-    aws_secret_access_key = aws_iam_access_key.iam_user_access_key[0].secret
+    role_arn = aws_iam_role.zenml.arn
+    aws_access_key_id = aws_iam_access_key.iam_user_access_key.id
+    aws_secret_access_key = aws_iam_access_key.iam_user_access_key.secret
   }
 
   labels = {
@@ -120,7 +195,8 @@ resource "zenml_stack_component" "container_registry" {
   flavor    = "aws"
 
   configuration = {
-    uri = aws_ecr_repository.containers.repository_url
+    uri = regex("^([^/]+)/?", aws_ecr_repository.containers.repository_url)[0]
+    default_repository = "${aws_ecr_repository.containers.name}"
   }
 
   connector_id = zenml_service_connector.aws.id
@@ -137,7 +213,9 @@ resource "zenml_stack_component" "orchestrator" {
   flavor    = "sagemaker"
 
   configuration = {
-    role_arn = aws_iam_role.zenml.arn
+      region = data.aws_region.current.name
+      execution_role = aws_iam_role.zenml.arn
+      output_data_s3_uri = "s3://${aws_s3_bucket.artifacts.bucket}/sagemaker"
   }
 
   connector_id = zenml_service_connector.aws.id

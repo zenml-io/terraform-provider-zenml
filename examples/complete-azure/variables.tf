@@ -9,10 +9,11 @@ variable "zenml_api_key" {
   description = "API key for authenticating with the ZenML server"
 }
 
-variable "region" {
+variable "location" {
+  description = "The Azure region where resources will be created"
+  # Make a choice from the list of Azure regions
   type        = string
-  default     = "eu-central-1"
-  description = "AWS region to deploy resources in"
+  default     = "westus"
 }
 
 variable "environment" {

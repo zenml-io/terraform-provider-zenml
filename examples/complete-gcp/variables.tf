@@ -1,4 +1,3 @@
-# examples/complete-gcp/variables.tf
 variable "zenml_server_url" {
   type        = string
   description = "URL of the ZenML server"
@@ -18,7 +17,7 @@ variable "project_id" {
 variable "region" {
   type        = string
   description = "GCP region"
-  default     = "us-central1"
+  default     = "europe-west3"
 }
 
 variable "environment" {
