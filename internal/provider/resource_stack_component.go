@@ -44,10 +44,12 @@ func resourceStackComponent() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ValidateFunc: validation.StringInSlice(validComponentTypes, false),
+				ForceNew:     true,
 			},
 			"flavor": {
 				Type:     schema.TypeString,
 				Required: true,
+				ForceNew: true,
 			},
 			"configuration": {
 				Type:      schema.TypeMap,
@@ -218,6 +220,8 @@ func resourceStackComponentUpdate(ctx context.Context, d *schema.ResourceData, m
 	update := ComponentUpdate{
 		Name: &name,
 	}
+
+	// type and flavor are immutable, so we don't need to check for changes
 
 	if d.HasChange("configuration") {
 		configMap := make(map[string]interface{})
