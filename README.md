@@ -12,7 +12,7 @@ This Terraform provider allows you to manage ZenML resources using Infrastructur
 
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0
 - [Go](https://golang.org/doc/install) >= 1.20
-- [ZenML Server](https://docs.zenml.io/) >= 0.40.0
+- [ZenML Server](https://docs.zenml.io/) >= 0.70.0
 
 ## Building The Provider
 

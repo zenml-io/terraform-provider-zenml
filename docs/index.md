@@ -12,6 +12,11 @@ The ZenML provider allows you to manage [ZenML](https://zenml.io) resources usin
 - Stack Components
 - Service Connectors
 
+## Requirements
+
+- [Terraform](https://www.terraform.io/downloads.html) >= 1.0
+- [ZenML Server](https://docs.zenml.io/) >= 0.70.0
+
 ## Example Usage
 
 ```hcl
