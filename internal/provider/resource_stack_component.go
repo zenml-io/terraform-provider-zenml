@@ -4,25 +4,23 @@ package provider
 import (
 	"context"
 	"fmt"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
 func resourceStackComponent() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceStackComponentCreate,
-		Read:   resourceStackComponentRead,
-		Update: resourceStackComponentUpdate,
-		Delete: resourceStackComponentDelete,
+		CreateContext: resourceStackComponentCreate,
+		ReadContext:   resourceStackComponentRead,
+		UpdateContext: resourceStackComponentUpdate,
+		DeleteContext: resourceStackComponentDelete,
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
-			// Validate that if connector is set, connector_resource_id should also be set
+			// Validate that if connector_resource_id is set, connector should also be set
 			connector, hasConnector := d.GetOk("connector")
 			connectorResourceID, hasConnectorResourceID := d.GetOk("connector_resource_id")
-
-			if hasConnector && connector.(string) != "" && (!hasConnectorResourceID || connectorResourceID.(string) == "") {
-				return fmt.Errorf("connector_resource_id must be set when connector is specified")
-			}
 
 			if hasConnectorResourceID && connectorResourceID.(string) != "" && (!hasConnector || connector.(string) == "") {
 				return fmt.Errorf("connector must be set when connector_resource_id is specified")
@@ -46,10 +44,12 @@ func resourceStackComponent() *schema.Resource {
 				Type:         schema.TypeString,
 				Required:     true,
 				ValidateFunc: validation.StringInSlice(validComponentTypes, false),
+				ForceNew:     true,
 			},
 			"flavor": {
 				Type:     schema.TypeString,
 				Required: true,
+				ForceNew: true,
 			},
 			"configuration": {
 				Type:      schema.TypeMap,
@@ -69,6 +69,10 @@ func resourceStackComponent() *schema.Resource {
 			"connector_id": {
 				Type:     schema.TypeString,
 				Optional: true,
+				// We cannot delete service connectors while they are still in
+				// use by a component, so we need to force new components when
+				// the connector is changed.
+				ForceNew: true,
 			},
 			"connector_resource_id": {
 				Type:     schema.TypeString,
@@ -82,32 +86,35 @@ func resourceStackComponent() *schema.Resource {
 	}
 }
 
-func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client, ok := m.(*Client)
 	if !ok {
-		return fmt.Errorf("invalid client type: expected *Client")
+		return diag.FromErr(fmt.Errorf("invalid client type: expected *Client"))
 	}
 	if client == nil {
-		return fmt.Errorf("client is nil")
+		return diag.FromErr(fmt.Errorf("client is nil"))
 	}
 
 	// Get the current user
-	user, err := client.GetCurrentUser()
+	user, err := client.GetCurrentUser(ctx)
 	if err != nil {
-		return fmt.Errorf("error getting current user: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting current user: %w", err))
 	}
 
 	workspaceName := d.Get("workspace").(string)
-	
+
 	// Get the workspace ID
-	workspace, err := client.GetWorkspaceByName(workspaceName)
+	workspace, err := client.GetWorkspaceByName(ctx, workspaceName)
 	if err != nil {
-		return fmt.Errorf("error getting workspace: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting workspace: %w", err))
+	}
+	if workspace == nil {
+		return diag.FromErr(fmt.Errorf("workspace not found: %s", workspaceName))
 	}
 
 	// Create the component request
 	component := ComponentRequest{
-		User:          user.ID,           // Add the user ID
+		User:          user.ID, // Add the user ID
 		Name:          d.Get("name").(string),
 		Type:          d.Get("type").(string),
 		Flavor:        d.Get("flavor").(string),
@@ -135,12 +142,12 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// Make the API call
-	resp, err := client.CreateComponent(workspace.ID, component)
+	resp, err := client.CreateComponent(ctx, workspace.ID, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
-			return fmt.Errorf("API error: %s", apiErr.Error())
+			return diag.FromErr(fmt.Errorf("API error: %s", apiErr.Error()))
 		}
-		return fmt.Errorf("failed to create component: %w", err)
+		return diag.FromErr(fmt.Errorf("failed to create component: %w", err))
 	}
 
 	// Set the ID from the response
@@ -165,27 +172,33 @@ func resourceStackComponentCreate(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 
-func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client, ok := m.(*Client)
 	if !ok {
-		return fmt.Errorf("invalid client type: expected *Client")
+		return diag.FromErr(fmt.Errorf("invalid client type: expected *Client"))
 	}
 
-	component, err := client.GetComponent(d.Id())
+	component, err := client.GetComponent(ctx, d.Id())
 	if err != nil {
-		return fmt.Errorf("error getting component: %w", err)
+		return diag.FromErr(fmt.Errorf("error getting component: %w", err))
+	}
+
+	if component == nil {
+		d.SetId("")
+		return nil
 	}
 
 	d.Set("name", component.Name)
-	
+
 	if component.Body != nil {
 		d.Set("type", component.Body.Type)
 		d.Set("flavor", component.Body.Flavor)
 	}
-	
+
 	if component.Metadata != nil {
 		d.Set("configuration", component.Metadata.Configuration)
-		if component.Metadata.Workspace != nil {
+
+		if component.Metadata.Workspace.Name != "default" {
 			d.Set("workspace", component.Metadata.Workspace.Name)
 		}
 		if component.Metadata.ConnectorResourceID != nil {
@@ -199,7 +212,7 @@ func resourceStackComponentRead(d *schema.ResourceData, m interface{}) error {
 	return nil
 }
 
-func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	// Create update with proper string pointer for name
@@ -207,6 +220,8 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 	update := ComponentUpdate{
 		Name: &name,
 	}
+
+	// type and flavor are immutable, so we don't need to check for changes
 
 	if d.HasChange("configuration") {
 		configMap := make(map[string]interface{})
@@ -224,34 +239,38 @@ func resourceStackComponentUpdate(d *schema.ResourceData, m interface{}) error {
 		update.Labels = labelsMap
 	}
 
-	if d.HasChange("component_spec_path") {
-		if v, ok := d.GetOk("component_spec_path"); ok {
+	// The connector ID and connector resource ID fields are special: they
+	// must always be set in the update request, even if they are not being
+	// changed, because a missing or null value is used to clear the field.
+
+	if v, ok := d.GetOk("connector_id"); ok {
+		str := v.(string)
+		update.ConnectorID = &str
+
+		if v, ok := d.GetOk("connector_resource_id"); ok {
 			str := v.(string)
-			update.ComponentSpecPath = &str
+			update.ConnectorResourceID = &str
+		} else {
+			update.ConnectorResourceID = nil
 		}
+	} else {
+		update.ConnectorID = nil
 	}
 
-	if d.HasChange("connector_id") {
-		if v, ok := d.GetOk("connector_id"); ok {
-			str := v.(string)
-			update.ConnectorID = &str
-		}
-	}
-
-	_, err := client.UpdateComponent(d.Id(), update)
+	_, err := client.UpdateComponent(ctx, d.Id(), update)
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error updating component: %w", err))
 	}
 
-	return resourceStackComponentRead(d, m)
+	return resourceStackComponentRead(ctx, d, m)
 }
 
-func resourceStackComponentDelete(d *schema.ResourceData, m interface{}) error {
+func resourceStackComponentDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	err := client.DeleteComponent(d.Id())
+	err := client.DeleteComponent(ctx, d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error deleting component: %w", err))
 	}
 
 	d.SetId("")

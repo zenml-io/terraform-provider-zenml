@@ -2,11 +2,15 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 type ListParams struct {
@@ -16,83 +20,163 @@ type ListParams struct {
 }
 
 type Client struct {
-	ServerURL  string
-	APIKey     string
-	HTTPClient *http.Client
+	ServerURL       string
+	APIKey          string
+	APIToken        string
+	APITokenExpires *time.Time
+	HTTPClient      *http.Client
 }
 
-type ServerInfo struct {
-	Version  string            `json:"version"`
-	Metadata map[string]string `json:"metadata"`
-}
-
-func NewClient(serverURL, apiKey string) *Client {
+func NewClient(serverURL, apiKey string, apiToken string) *Client {
 	return &Client{
-		ServerURL:  serverURL,
-		APIKey:     apiKey,
-		HTTPClient: &http.Client{},
+		ServerURL:       serverURL,
+		APIKey:          apiKey,
+		APIToken:        apiToken,
+		APITokenExpires: nil,
+		HTTPClient:      &http.Client{},
 	}
 }
 
-func (c *Client) doRequest(method, path string, body interface{}) (*http.Response, error) {
+func (c *Client) getAPIToken(ctx context.Context) (string, error) {
+	if c.APIToken != "" {
+		if c.APITokenExpires == nil {
+			// No expiry, so just return the token
+			return c.APIToken, nil
+		}
+		// Check if the token has expired
+		if time.Now().Before(*c.APITokenExpires) {
+			// Token is still valid
+			return c.APIToken, nil
+		}
+		if c.APIKey == "" {
+			// Token has expired and we can't refresh it
+			return "", fmt.Errorf(`The API token configured for the ZenML Terraform provider has expired.
+
+Please reconfigure the provider with a new API token or an API key.
+It is recommended to use an API key for long-term Terraform management operations, as API tokens expire after a short period of time.
+
+More information on how to configure a service account and an API key can be found at https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account.
+
+To configure the ZenML Terraform provider, add the following block to your Terraform configuration:
+
+provider "zenml" {
+	server_url = "https://example.zenml.io"
+	api_key   = "your api key"
+}
+
+or use the ZENML_API_KEY environment variable to set the API key.
+`)
+		}
+	} else if c.APIKey == "" {
+		// Shouldn't happen, as the provider should have already validated this.
+		return "", fmt.Errorf("an API key or an API token must be configured for the ZenML Terraform provider to be able to authenticate with your ZenML server")
+	}
+
+	// Get a new token from the API key using the password flow
+	data := url.Values{}
+	data.Set("password", c.APIKey)
+	loginReq, err := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
+		bytes.NewBufferString(data.Encode()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("error creating login request: %v", err)
+	}
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResp, err := c.HTTPClient.Do(loginReq)
+	if err != nil {
+		return "", fmt.Errorf("error making login request: %v", err)
+	}
+	defer loginResp.Body.Close()
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("error decoding login response: %v", err)
+	}
+
+	c.APIToken = tokenResp.AccessToken
+	// Set the expiry time to 5 minutes before the actual expiry, to account for
+	// clock skew and to avoid using an expired token when making requests
+	expiresAt := time.Now().Add(
+		time.Duration(tokenResp.ExpiresIn-300) * time.Second,
+	)
+	c.APITokenExpires = &expiresAt
+
+	return c.APIToken, nil
+}
+
+func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
 	var bodyReader io.Reader
 
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling request body: %v", err)
+			return nil, 0, fmt.Errorf("error marshaling request body: %v", err)
 		}
 		bodyReader = bytes.NewBuffer(jsonBody)
 	}
 
 	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
+		return nil, 0, fmt.Errorf("error creating request: %v", err)
 	}
 
-	// Always get a new token using password flow
-	data := url.Values{}
-	data.Set("password", c.APIKey)
-	loginReq, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/login", c.ServerURL), bytes.NewBufferString(data.Encode()))
+	accessToken, err := c.getAPIToken(ctx)
+
 	if err != nil {
-		return nil, fmt.Errorf("error creating login request: %v", err)
-	}
-	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	loginResp, err := c.HTTPClient.Do(loginReq)
-	if err != nil {
-		return nil, fmt.Errorf("error making login request: %v", err)
-	}
-	defer loginResp.Body.Close()
-	
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
-		return nil, fmt.Errorf("error decoding login response: %v", err)
+		return nil, 0, fmt.Errorf("error getting API token: %v", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenResp.AccessToken))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, req.URL.String()))
+	if body != nil {
+		prettyJSON, _ := json.MarshalIndent(body, "", "  ")
+		tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", prettyJSON))
+	}
+
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error making request: %v", err)
+		return nil, 0, fmt.Errorf("error making request: %v", err)
 	}
+
+	// Read the response body once and store it in a variable
+	defer resp.Body.Close()
+	resp_body, _ := io.ReadAll(resp.Body)
+
+	// Print the response body as JSON if available
+	if len(resp_body) > 0 {
+		var prettyBody map[string]interface{}
+		if err := json.Unmarshal(resp_body, &prettyBody); err == nil {
+			prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
+			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body (JSON):\n%s", prettyJSON))
+		} else {
+			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body:\n%s", string(resp_body)))
+		}
+	}
+
+	tflog.Info(ctx, fmt.Sprintf("[ZENML] Response status: %d", resp.StatusCode))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(resp_body))
 	}
 
-	return resp, nil
+	// Re-wrap the body so that the caller can still read it
+	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
+
+	return resp, resp.StatusCode, nil
 }
 
 // GetServerInfo fetches server info to determine version and capabilities
-func (c *Client) GetServerInfo() (*ServerInfo, error) {
-	resp, err := c.doRequest("GET", "/api/v1/info", nil)
+func (c *Client) GetServerInfo(ctx context.Context) (*ServerInfo, error) {
+	resp, _, err := c.doRequest(ctx, "GET", "/api/v1/info", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +190,9 @@ func (c *Client) GetServerInfo() (*ServerInfo, error) {
 }
 
 // Stack operations
-func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackResponse, error) {
+func (c *Client) CreateStack(ctx context.Context, workspace string, stack StackRequest) (*StackResponse, error) {
 	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
-	resp, err := c.doRequest("POST", endpoint, stack)
+	resp, _, err := c.doRequest(ctx, "POST", endpoint, stack)
 	if err != nil {
 		return nil, err
 	}
@@ -121,9 +205,26 @@ func (c *Client) CreateStack(workspace string, stack StackRequest) (*StackRespon
 	return &result, nil
 }
 
-// Remaining methods from the original client...
-func (c *Client) GetStack(id string) (*StackResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/stacks/%s", id), nil)
+func (c *Client) GetStack(ctx context.Context, id string) (*StackResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/stacks/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			// Return nil if the stack is not found
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result StackResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateStack(ctx context.Context, id string, stack StackUpdate) (*StackResponse, error) {
+	resp, _, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/stacks/%s", id), stack)
 	if err != nil {
 		return nil, err
 	}
@@ -136,30 +237,20 @@ func (c *Client) GetStack(id string) (*StackResponse, error) {
 	return &result, nil
 }
 
-func (c *Client) UpdateStack(id string, stack StackUpdate) (*StackResponse, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/stacks/%s", id), stack)
+func (c *Client) DeleteStack(ctx context.Context, id string) error {
+	resp, status, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/stacks/%s", id), nil)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result StackResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-	return &result, nil
-}
-
-func (c *Client) DeleteStack(id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/stacks/%s", id), nil)
-	if err != nil {
+		if status == 404 {
+			// Return nil if the stack is not found
+			return nil
+		}
 		return err
 	}
 	resp.Body.Close()
 	return nil
 }
 
-func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
+func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[StackResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -173,17 +264,17 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
-	
+
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/stacks?%s", query.Encode())
-	resp, err := c.doRequest("GET", path, nil)
+	resp, _, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +289,9 @@ func (c *Client) ListStacks(params *ListParams) (*Page[StackResponse], error) {
 }
 
 // Component operations...
-func (c *Client) CreateComponent(workspace string, component ComponentRequest) (*ComponentResponse, error) {
+func (c *Client) CreateComponent(ctx context.Context, workspace string, component ComponentRequest) (*ComponentResponse, error) {
 	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/components", workspace)
-	resp, err := c.doRequest("POST", endpoint, component)
+	resp, _, err := c.doRequest(ctx, "POST", endpoint, component)
 	if err != nil {
 		return nil, err
 	}
@@ -213,8 +304,26 @@ func (c *Client) CreateComponent(workspace string, component ComponentRequest) (
 	return &result, nil
 }
 
-func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/components/%s", id), nil)
+func (c *Client) GetComponent(ctx context.Context, id string) (*ComponentResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/components/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			// Return nil if the component is not found
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ComponentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateComponent(ctx context.Context, id string, component ComponentUpdate) (*ComponentResponse, error) {
+	resp, _, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/components/%s", id), component)
 	if err != nil {
 		return nil, err
 	}
@@ -227,30 +336,20 @@ func (c *Client) GetComponent(id string) (*ComponentResponse, error) {
 	return &result, nil
 }
 
-func (c *Client) UpdateComponent(id string, component ComponentUpdate) (*ComponentResponse, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/components/%s", id), component)
+func (c *Client) DeleteComponent(ctx context.Context, id string) error {
+	resp, status, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/components/%s", id), nil)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result ComponentResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-	return &result, nil
-}
-
-func (c *Client) DeleteComponent(id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/components/%s", id), nil)
-	if err != nil {
+		if status == 404 {
+			// Return nil if the component is not found
+			return nil
+		}
 		return err
 	}
 	resp.Body.Close()
 	return nil
 }
 
-func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Page[ComponentResponse], error) {
+func (c *Client) ListStackComponents(ctx context.Context, workspace string, params *ListParams) (*Page[ComponentResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -264,16 +363,16 @@ func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Pag
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/workspaces/%s/components?%s", workspace, query.Encode())
-	resp, err := c.doRequest("GET", path, nil)
+	resp, _, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -288,9 +387,23 @@ func (c *Client) ListStackComponents(workspace string, params *ListParams) (*Pag
 }
 
 // Service Connector operations...
-func (c *Client) CreateServiceConnector(workspace string, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
+func (c *Client) VerifyServiceConnector(ctx context.Context, connector ServiceConnectorRequest) (*ServiceConnectorResources, error) {
+	resp, _, err := c.doRequest(ctx, "POST", "/api/v1/service_connectors/verify", connector)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResources
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) CreateServiceConnector(ctx context.Context, workspace string, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
 	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/service_connectors", workspace)
-	resp, err := c.doRequest("POST", endpoint, connector)
+	resp, _, err := c.doRequest(ctx, "POST", endpoint, connector)
 	if err != nil {
 		return nil, err
 	}
@@ -303,8 +416,27 @@ func (c *Client) CreateServiceConnector(workspace string, connector ServiceConne
 	return &result, nil
 }
 
-func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
+func (c *Client) GetServiceConnector(ctx context.Context, id string) (*ServiceConnectorResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			// Return nil if the service connector is not found
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ServiceConnectorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+
+	return &result, nil
+}
+
+func (c *Client) UpdateServiceConnector(ctx context.Context, id string, connector ServiceConnectorUpdate) (*ServiceConnectorResponse, error) {
+	resp, _, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/service_connectors/%s", id), connector)
 	if err != nil {
 		return nil, err
 	}
@@ -317,30 +449,20 @@ func (c *Client) GetServiceConnector(id string) (*ServiceConnectorResponse, erro
 	return &result, nil
 }
 
-func (c *Client) UpdateServiceConnector(id string, connector ServiceConnectorUpdate) (*ServiceConnectorResponse, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/service_connectors/%s", id), connector)
+func (c *Client) DeleteServiceConnector(ctx context.Context, id string) error {
+	resp, status, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result ServiceConnectorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error decoding response: %v", err)
-	}
-	return &result, nil
-}
-
-func (c *Client) DeleteServiceConnector(id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/service_connectors/%s", id), nil)
-	if err != nil {
+		if status == 404 {
+			// Return nil if the service connector is not found
+			return nil
+		}
 		return err
 	}
 	resp.Body.Close()
 	return nil
 }
 
-func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnectorResponse], error) {
+func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) (*Page[ServiceConnectorResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -354,16 +476,16 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 			params.PageSize = 100
 		}
 	}
-	
+
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
 	for k, v := range params.Filter {
 		query.Add(k, v)
 	}
-	
+
 	path := fmt.Sprintf("/api/v1/service_connectors?%s", query.Encode())
-	resp, err := c.doRequest("GET", path, nil)
+	resp, _, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -378,30 +500,34 @@ func (c *Client) ListServiceConnectors(params *ListParams) (*Page[ServiceConnect
 }
 
 // Add this new method to the Client
-func (c *Client) GetServiceConnectorByName(workspace, name string) (*ServiceConnectorResponse, error) {
+func (c *Client) GetServiceConnectorByName(ctx context.Context, workspace, name string) (*ServiceConnectorResponse, error) {
 	params := &ListParams{
 		Filter: map[string]string{
-			"name": name,
+			"name":      name,
 			"workspace": workspace,
 		},
 	}
-	
-	connectors, err := c.ListServiceConnectors(params)
+
+	connectors, err := c.ListServiceConnectors(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(connectors.Items) == 0 {
-		return nil, fmt.Errorf("no service connector found with name %s", name)
+		return nil, nil
 	}
-	
+
 	return &connectors.Items[0], nil
 }
 
 // Add this new method to the Client
-func (c *Client) GetWorkspaceByName(name string) (*WorkspaceResponse, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/workspaces/%s", name), nil)
+func (c *Client) GetWorkspaceByName(ctx context.Context, name string) (*WorkspaceResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/workspaces/%s", name), nil)
 	if err != nil {
+		if status == 404 {
+			// Return nil if the workspace is not found
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -415,8 +541,8 @@ func (c *Client) GetWorkspaceByName(name string) (*WorkspaceResponse, error) {
 }
 
 // Add this method to get the current user
-func (c *Client) GetCurrentUser() (*UserResponse, error) {
-	resp, err := c.doRequest("GET", "/api/v1/current-user", nil)
+func (c *Client) GetCurrentUser(ctx context.Context) (*UserResponse, error) {
+	resp, _, err := c.doRequest(ctx, "GET", "/api/v1/current-user", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -428,4 +554,3 @@ func (c *Client) GetCurrentUser() (*UserResponse, error) {
 	}
 	return &result, nil
 }
-

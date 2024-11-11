@@ -39,6 +39,9 @@ In addition to all arguments above, the following attributes are exported:
 * `flavor` - The flavor of the stack component (e.g., "local", "gcp", "aws", etc.).
 * `configuration` - A map of configuration key-value pairs for the stack component.
 * `workspace` - The workspace ID this stack component belongs to.
+* `labels` - A map of labels associated with this stack component.
+* `connector` - The ID of the service connector associated with this stack component.
+* `connector_resource_id` - The ID of the resource the service connector is connected to.
 
 ## Import
 

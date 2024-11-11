@@ -38,7 +38,8 @@ In addition to all arguments above, the following attributes are exported:
 * `name` - The name of the service connector.
 * `type` - The type of the service connector (e.g., "gcp", "aws", "azure", etc.).
 * `auth_method` - The authentication method used by the service connector.
-* `resource_types` - A list of resource types supported by this service connector.
+* `resource_type` - The type of resource the service connector is connected to (e.g., "s3-bucket", "docker-registry", etc.).
+* `resource_id` - The ID of the resource the service connector is connected to.
 * `configuration` - A map of configuration key-value pairs for the service connector. Sensitive values are not included.
 * `workspace` - The workspace ID this service connector belongs to.
 * `labels` - A map of labels associated with this service connector.

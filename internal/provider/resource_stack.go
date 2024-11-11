@@ -2,18 +2,20 @@
 package provider
 
 import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func resourceStack() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceStackCreate,
-		Read:   resourceStackRead,
-		Update: resourceStackUpdate,
-		Delete: resourceStackDelete,
+		CreateContext: resourceStackCreate,
+		ReadContext:   resourceStackRead,
+		UpdateContext: resourceStackUpdate,
+		DeleteContext: resourceStackDelete,
 
 		Schema: map[string]*schema.Schema{
 			"workspace": {
@@ -33,6 +35,10 @@ func resourceStack() *schema.Resource {
 					Type: schema.TypeString,
 				},
 				Description: "Map of component types to component IDs",
+				// We cannot delete components while they are still in use
+				// by a stack, so we need to force new stacks when components
+				// are changed.
+				ForceNew: true,
 			},
 			"labels": {
 				Type:     schema.TypeMap,
@@ -71,7 +77,7 @@ func resourceStack() *schema.Resource {
 	}
 }
 
-func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
+func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	// Get the workspace from schema instead of hardcoding
@@ -83,28 +89,40 @@ func resourceStackCreate(d *schema.ResourceData, m interface{}) error {
 
 	// Handle components
 	if v, ok := d.GetOk("components"); ok {
-			components := make(map[string][]string)
-			for k, v := range v.(map[string]interface{}) {
-				// Convert single ID to array of IDs since API expects array
-				components[k] = []string{v.(string)}
-			}
-			stack.Components = components
+		components := make(map[string][]string)
+		for k, v := range v.(map[string]interface{}) {
+			// Convert single ID to array of IDs since API expects array
+			components[k] = []string{v.(string)}
+		}
+		stack.Components = components
 	}
 
-	resp, err := client.CreateStack(workspace, stack)
+	// Handle labels
+	if v, ok := d.GetOk("labels"); ok {
+		labels := make(map[string]string)
+		for k, v := range v.(map[string]interface{}) {
+			labels[k] = v.(string)
+		}
+		stack.Labels = labels
+	}
+
+	resp, err := client.CreateStack(ctx, workspace, stack)
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error creating stack: %w", err))
 	}
 
 	d.SetId(resp.ID)
-	return resourceStackRead(d, m)
+	return resourceStackRead(ctx, d, m)
 }
 
-func resourceStackRead(d *schema.ResourceData, m interface{}) error {
+func resourceStackRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	stack, err := client.GetStack(d.Id())
+	stack, err := client.GetStack(ctx, d.Id())
 	if err != nil {
+		return diag.FromErr(fmt.Errorf("error getting stack: %w", err))
+	}
+	if stack == nil {
 		// Handle 404 by removing from state
 		d.SetId("")
 		return nil
@@ -126,16 +144,22 @@ func resourceStackRead(d *schema.ResourceData, m interface{}) error {
 
 	// Handle labels if present
 	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+
+		if stack.Metadata.Workspace.Name != "default" {
+			d.Set("workspace", stack.Metadata.Workspace.Name)
+		}
+
 		d.Set("labels", stack.Metadata.Labels)
 	}
 
 	return nil
 }
 
-func resourceStackUpdate(d *schema.ResourceData, m interface{}) error {
+func resourceStackUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
 	name := d.Get("name").(string)
+
 	update := StackUpdate{
 		Name: &name,
 	}
@@ -161,20 +185,20 @@ func resourceStackUpdate(d *schema.ResourceData, m interface{}) error {
 		}
 	}
 
-	_, err := client.UpdateStack(d.Id(), update)
+	_, err := client.UpdateStack(ctx, d.Id(), update)
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error updating stack: %w", err))
 	}
 
-	return resourceStackRead(d, m)
+	return resourceStackRead(ctx, d, m)
 }
 
-func resourceStackDelete(d *schema.ResourceData, m interface{}) error {
+func resourceStackDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	err := client.DeleteStack(d.Id())
+	err := client.DeleteStack(ctx, d.Id())
 	if err != nil {
-		return err
+		return diag.FromErr(fmt.Errorf("error deleting stack: %w", err))
 	}
 
 	d.SetId("")

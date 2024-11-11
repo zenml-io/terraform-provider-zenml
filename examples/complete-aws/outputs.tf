@@ -1,4 +1,3 @@
-# examples/complete-aws/outputs.tf
 output "stack_id" {
   description = "ID of the created ZenML stack"
   value       = zenml_stack.aws_stack.id

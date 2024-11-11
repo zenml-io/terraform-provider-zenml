@@ -44,6 +44,8 @@ terraform {
 
 ### Authentication
 
+#### Service Account API Key
+
 Configure the provider with your ZenML server URL and API key:
 
 ```hcl
@@ -78,7 +80,29 @@ zenml service-account create <MYSERVICEACCOUNTNAME>
 
 This command will print out the ZENML_API_KEY that you can use with this provider.
 
+#### API Token
+
+Alternatively, you can use an API token for authentication:
+
+```hcl
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_token  = "your-api-token"
+}
+```
+
+You can also use environment variables:
+```bash
+export ZENML_SERVER_URL="https://your-zenml-server.com"
+export ZENML_API_TOKEN="your-api-token"
+```
+
 ### Example Usage
+
+> **Hint:** The ZenML Terraform provider is being heavily used in all our Terraform modules. Their code is available on GitHub and can be used as a reference:
+> - [zenml-stack/aws](https://github.com/zenml-io/terraform-aws-zenml-stack)
+> - [zenml-stack/gcp](https://github.com/zenml-io/terraform-gcp-zenml-stack)
+> - [zenml-stack/azure](https://github.com/zenml-io/terraform-azure-zenml-stack)
 
 Here's a basic example of creating a stack with components:
 
@@ -90,18 +114,9 @@ resource "zenml_service_connector" "gcp" {
   auth_method = "service-account"
   # workspace defaults to "default" if not specified
   
-  resource_types = [
-    "artifact-store",
-    "container-registry",
-    "orchestrator"
-  ]
-  
   configuration = {
     project_id = "my-project"
     location   = "us-central1"
-  }
-  
-  secrets = {
     service_account_json = file("service-account.json")
   }
   

@@ -2,6 +2,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -98,7 +99,7 @@ func testAccCheckStackComponentExists(n string) resource.TestCheckFunc {
 		}
 
 		client := testAccProvider.Meta().(*Client)
-		_, err := client.GetComponent(rs.Primary.ID)
+		_, err := client.GetComponent(context.Background(), rs.Primary.ID)
 		if err != nil {
 			return fmt.Errorf("Stack Component not found: %v", err)
 		}
@@ -113,12 +114,12 @@ func testAccCheckStackComponentDestroy(s *terraform.State) error {
 	for _, rs := range s.RootModule().Resources {
 		switch rs.Type {
 		case "zenml_stack_component":
-			_, err := client.GetComponent(rs.Primary.ID)
+			_, err := client.GetComponent(context.Background(), rs.Primary.ID)
 			if err == nil {
 				return fmt.Errorf("Stack Component still exists")
 			}
 		case "zenml_service_connector":
-			_, err := client.GetServiceConnector(rs.Primary.ID)
+			_, err := client.GetServiceConnector(context.Background(), rs.Primary.ID)
 			if err == nil {
 				return fmt.Errorf("Service Connector still exists")
 			}

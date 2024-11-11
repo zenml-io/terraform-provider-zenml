@@ -1,11 +1,13 @@
 package provider
 
 import (
-	"testing"
+	"context"
 	"fmt"
+	"os"
+	"testing"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
-	"os"
 )
 
 func TestAccStack_basic(t *testing.T) {
@@ -74,7 +76,7 @@ func testAccCheckStackExists(resourceName string) resource.TestCheckFunc {
 
 		// Add actual backend verification
 		client := testAccProvider.Meta().(*Client)
-		_, err := client.GetStack(rs.Primary.ID)
+		_, err := client.GetStack(context.Background(), rs.Primary.ID)
 		if err != nil {
 			return fmt.Errorf("error fetching stack with ID %s: %s", rs.Primary.ID, err)
 		}
