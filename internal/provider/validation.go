@@ -3,15 +3,22 @@ package provider
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"strings"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
+// Constants and variables used for validating connector types, resource types,
+// authentication methods, and component types in the ZenML Terraform provider.
 // All validation constants and variables
 var (
 	validConnectorTypes = []string{
-		"aws", "gcp", "azure", "kubernetes",
-		"docker", "hyperai",
+		"aws",
+		"gcp",
+		"azure",
+		"kubernetes",
+		"docker",
+		"hyperai",
 	}
 
 	validResourceTypes = map[string][]string{
@@ -83,7 +90,7 @@ var (
 
 	validComponentTypes = []string{
 		"alerter",
-		"annotator", 
+		"annotator",
 		"artifact_store",
 		"container_registry",
 		"data_validator",
@@ -99,7 +106,7 @@ var (
 
 func validateServiceConnector(d *schema.ResourceDiff) error {
 	connectorType := d.Get("type").(string)
-	
+
 	// Validate connector type first
 	validType := false
 	for _, t := range validConnectorTypes {

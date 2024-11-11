@@ -1,4 +1,5 @@
 // resource_stack.go
+// This file contains the implementation of the Terraform resource for managing ZenML stacks.
 package provider
 
 import (
@@ -35,9 +36,10 @@ func resourceStack() *schema.Resource {
 					Type: schema.TypeString,
 				},
 				Description: "Map of component types to component IDs",
-				// We cannot delete components while they are still in use
-				// by a stack, so we need to force new stacks when components
-				// are changed.
+				// Components cannot be deleted while they are still in use by a stack
+				// because the stack relies on these components to function correctly.
+				// Therefore, any change to the components requires creating a new stack
+				// to ensure that the existing stack remains consistent and operational.
 				ForceNew: true,
 			},
 			"labels": {
@@ -80,7 +82,6 @@ func resourceStack() *schema.Resource {
 func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	// Get the workspace from schema instead of hardcoding
 	workspace := d.Get("workspace").(string)
 
 	stack := StackRequest{
@@ -96,7 +97,6 @@ func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interfac
 		}
 		stack.Components = components
 	}
-
 	// Handle labels
 	if v, ok := d.GetOk("labels"); ok {
 		labels := make(map[string]string)
@@ -105,7 +105,6 @@ func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interfac
 		}
 		stack.Labels = labels
 	}
-
 	resp, err := client.CreateStack(ctx, workspace, stack)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("error creating stack: %w", err))
