@@ -79,7 +79,7 @@ func TestAccStackComponent_withConnector(t *testing.T) {
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "name", "test-store"),
 					resource.TestCheckResourceAttrPair(
-						"zenml_stack_component.test", "connector",
+						"zenml_stack_component.test", "connector_id",
 						"zenml_service_connector.test", "id"),
 				),
 			},
@@ -130,13 +130,17 @@ func testAccCheckStackComponentDestroy(s *terraform.State) error {
 }
 
 func testAccStackComponentConfig_basic() string {
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
+
 	return fmt.Sprintf(`
 resource "zenml_stack_component" "test" {
 	name      = "test-store"
 	type      = "artifact_store"
 	flavor    = "local"
 	workspace = "%s"
-	user      = "%s"
 	
 	configuration = {
 		path = "/tmp/artifacts"
@@ -146,17 +150,21 @@ resource "zenml_stack_component" "test" {
 		environment = "test"
 	}
 }
-`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
+`, workspace)
 }
 
 func testAccStackComponentConfig_update() string {
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
+
 	return fmt.Sprintf(`
 resource "zenml_stack_component" "test" {
 	name      = "updated-store"
 	type      = "artifact_store"
 	flavor    = "local"
 	workspace = "%s"
-	user      = "%s"
 	
 	configuration = {
 		path = "/tmp/artifacts-updated"
@@ -167,25 +175,25 @@ resource "zenml_stack_component" "test" {
 		team        = "ml"
 	}
 }
-`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
+`, workspace)
 }
 
 func testAccStackComponentConfig_withConnector() string {
-	return `
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
+	return fmt.Sprintf(`
 resource "zenml_service_connector" "test" {
 	name        = "test-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	user        = "user-uuid"
-	workspace   = "workspace-uuid"
+	workspace = "%s"
 	
-	resource_types = ["artifact-store"]
+	resource_type = "gcs-bucket"
 	
 	configuration = {
 		project_id = "test-project"
-	}
-	
-	secrets = {
 		service_account_json = jsonencode({
 			"type": "service_account",
 			"project_id": "test-project"
@@ -197,18 +205,17 @@ resource "zenml_stack_component" "test" {
 	name      = "test-store"
 	type      = "artifact_store"
 	flavor    = "gcp"
-	user      = "user-uuid"
-	workspace = "workspace-uuid"
+	workspace = "%s"
 	
 	configuration = {
 		path = "gs://test-bucket/artifacts"
 	}
 	
-	connector = zenml_service_connector.test.id
+	connector_id = zenml_service_connector.test.id
 	
 	labels = {
 		environment = "test"
 	}
 }
-`
+`, workspace, workspace)
 }

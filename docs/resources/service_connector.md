@@ -16,16 +16,10 @@ resource "zenml_service_connector" "gcp_connector" {
   name        = "my-gcp-connector"
   type        = "gcp"
   auth_method = "service-account"
-  user        = "user-uuid"
-  workspace   = "workspace-uuid"
-  
-  resource_types = ["artifact-store", "container-registry"]
+  workspace   = "default"
   
   configuration = {
     project_id = "my-gcp-project"
-  }
-  
-  secrets = {
     service_account_json = jsonencode({
       "type": "service_account",
       "project_id": "my-gcp-project",
@@ -54,11 +48,9 @@ resource "zenml_service_connector" "gcp_connector" {
   * GCP: `service-account`, `oauth2`, `workload-identity`
   * Azure: `service-principal`, `managed-identity`
   * Kubernetes: `kubeconfig`, `service-account`
-* `user` - (Required, Forces new resource) The ID of the user who owns this connector.
 * `workspace` - (Optional) The workspace this connector belongs to. Defaults to "default". Forces new resource if changed.
-* `resource_types` - (Optional) A list of resource types this connector can be used for (e.g., `artifact-store`, `container-registry`, `orchestrator`).
+* `resource_type` - (Optional) A resource type this connector can be used for (e.g., `s3-bucket`, `kubernetes-cluster`, `docker-registry`).
 * `configuration` - (Required, Sensitive) A map of configuration key-value pairs for the connector.
-* `secrets` - (Optional, Sensitive) A map of secret key-value pairs for the connector.
 * `labels` - (Optional) A map of labels to associate with the connector.
 
 ## Attributes Reference

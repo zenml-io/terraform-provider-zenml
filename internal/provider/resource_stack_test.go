@@ -29,13 +29,17 @@ func TestAccStack_basic(t *testing.T) {
 }
 
 func testAccStackConfig_basic() string {
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
+
 	return fmt.Sprintf(`
 resource "zenml_stack_component" "artifact_store" {
     name      = "test-store"
     type      = "artifact_store"
     flavor    = "local"
     workspace = "%s"
-    user      = "%s"
     
     configuration = {
         path = "/tmp/artifacts"
@@ -54,7 +58,7 @@ resource "zenml_stack" "test" {
         environment = "test"
     }
 }
-`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"), os.Getenv("ZENML_WORKSPACE"))
+`, workspace, workspace)
 }
 
 func testAccCheckStackDestroy(s *terraform.State) error {

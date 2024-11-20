@@ -31,7 +31,7 @@ func TestAccServiceConnector_basic(t *testing.T) {
 						"zenml_service_connector.test", "configuration.project_id", "test-project"),
 					resource.TestCheckResourceAttrSet(
 						"zenml_service_connector.test", "configuration.service_account_json"),
-					// Add resource_types validation
+					// Add resource_type validation
 					resource.TestCheckResourceAttr(
 						"zenml_service_connector.test", "resource_type", "gcs-bucket"),
 				),
@@ -113,15 +113,18 @@ func testAccCheckServiceConnectorDestroy(s *terraform.State) error {
 }
 
 func testAccServiceConnectorConfig_basic() string {
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
 	return fmt.Sprintf(`
 resource "zenml_service_connector" "test" {
 	name        = "test-connector"
 	type        = "gcp"
 	auth_method = "service-account"
 	workspace   = "%s"
-	user        = "%s"
 	
-	resource_types = ["gcs-bucket"]
+	resource_type = "gcs-bucket"
 	
 	configuration = {
 		project_id = "test-project"
@@ -135,17 +138,20 @@ resource "zenml_service_connector" "test" {
 		environment = "test"
 	}
 }
-`, os.Getenv("ZENML_WORKSPACE"), os.Getenv("ZENML_USER_ID"))
+`, workspace)
 }
 
 func testAccServiceConnectorConfig_update() string {
-	return `
+	workspace := os.Getenv("ZENML_WORKSPACE")
+	if workspace == "" {
+		workspace = "default"
+	}
+	return fmt.Sprintf(`
 resource "zenml_service_connector" "test" {
 	name        = "updated-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	user        = "user-uuid"
-	workspace   = "workspace-uuid"
+	workspace   = "%s"
 		
 	configuration = {
 		project_id = "test-project"
@@ -161,5 +167,5 @@ resource "zenml_service_connector" "test" {
 		team        = "ml"
 	}
 }
-`
+`, workspace)
 }

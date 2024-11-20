@@ -41,13 +41,8 @@ resource "zenml_service_connector" "gcp" {
   type        = "gcp"
   auth_method = "service-account"
   
-  resource_types = ["artifact-store", "container-registry"]
-  
   configuration = {
     project_id = "my-project"
-  }
-  
-  secrets = {
     service_account_json = file("service-account.json")
   }
 }

@@ -3,8 +3,9 @@ package provider
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"strings"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 // All validation constants and variables
@@ -83,7 +84,7 @@ var (
 
 	validComponentTypes = []string{
 		"alerter",
-		"annotator", 
+		"annotator",
 		"artifact_store",
 		"container_registry",
 		"data_validator",
@@ -99,7 +100,7 @@ var (
 
 func validateServiceConnector(d *schema.ResourceDiff) error {
 	connectorType := d.Get("type").(string)
-	
+
 	// Validate connector type first
 	validType := false
 	for _, t := range validConnectorTypes {
@@ -147,11 +148,11 @@ func validateServiceConnector(d *schema.ResourceDiff) error {
 		}
 	}
 
-	// NOTE: we specifically don't validate the configuration or secrets here
+	// NOTE: we specifically don't validate the configuration here
 	// for two reasons:
-	// 1. The configuration and secrets can be derived from resources and data
+	// 1. The configuration can be derived from resources and data
 	//    sources that are not available during plan time.
-	// 2. The configuration and secrets are validated by the ZenML server
+	// 2. The configuration are validated by the ZenML server
 	//    when the connector is validated / created and we don't want to
 	//    duplicate that logic here.
 
