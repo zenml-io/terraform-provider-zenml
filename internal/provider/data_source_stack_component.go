@@ -138,7 +138,7 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error getting stack component: %v", err))
 		}
-	} else if name == "" && componentType == "" {
+	} else if name != "" && componentType != "" {
 		// List components with filters
 		params := &ListParams{
 			Filter: map[string]string{
@@ -201,37 +201,37 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 
 		if component.Metadata.Connector != nil {
 
-			connector_type := ""
-			resource_id := ""
-			resource_types := []string{}
+			connectorType := ""
+			resourceId := ""
+			resourceTypes := []string{}
 
 			if component.Metadata.Connector.Body != nil {
 
 				// Unmarshal the connector type, which can be either a string or a struct
 				// Try to unmarshal as string
-				err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connector_type)
+				err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connectorType)
 				if err != nil {
-					var type_struct ServiceConnectorType
+					var typeStruct ServiceConnectorType
 					// Try to unmarshal as struct
-					if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &type_struct); err == nil {
-						connector_type = type_struct.ConnectorType
+					if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &typeStruct); err == nil {
+						connectorType = typeStruct.ConnectorType
 					}
 				}
 
 				if component.Metadata.Connector.Body.ResourceID != nil {
-					resource_id = *component.Metadata.Connector.Body.ResourceID
+					resourceId = *component.Metadata.Connector.Body.ResourceID
 				}
 
-				resource_types = component.Metadata.Connector.Body.ResourceTypes
+				resourceTypes = component.Metadata.Connector.Body.ResourceTypes
 			}
 
 			connector := []interface{}{
 				map[string]interface{}{
 					"id":             component.Metadata.Connector.ID,
 					"name":           component.Metadata.Connector.Name,
-					"connector_type": connector_type,
-					"resource_id":    resource_id,
-					"resource_types": resource_types,
+					"connector_type": connectorType,
+					"resource_id":    resourceId,
+					"resource_types": resourceTypes,
 				},
 			}
 			if err := d.Set("connector", connector); err != nil {
