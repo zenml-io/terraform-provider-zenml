@@ -93,7 +93,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error getting stack: %v", err))
 		}
-	} else if name == "" {
+	} else if name != "" {
 		// List stacks with filter to find by name
 		params := &ListParams{
 			Filter: map[string]string{
