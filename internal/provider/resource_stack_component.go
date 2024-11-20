@@ -19,11 +19,11 @@ func resourceStackComponent() *schema.Resource {
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
 			// Validate that if connector_resource_id is set, connector should also be set
-			connector, hasConnector := d.GetOk("connector")
+			connector, hasConnector := d.GetOk("connector_id")
 			connectorResourceID, hasConnectorResourceID := d.GetOk("connector_resource_id")
 
 			if hasConnectorResourceID && connectorResourceID.(string) != "" && (!hasConnector || connector.(string) == "") {
-				return fmt.Errorf("connector must be set when connector_resource_id is specified")
+				return fmt.Errorf("connector_id must be set when connector_resource_id is specified")
 			}
 
 			return nil
