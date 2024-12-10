@@ -8,11 +8,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
+// Constants and variables used for validating connector types, resource types,
+// authentication methods, and component types in the ZenML Terraform provider.
 // All validation constants and variables
 var (
 	validConnectorTypes = []string{
-		"aws", "gcp", "azure", "kubernetes",
-		"docker", "hyperai",
+		"aws",
+		"gcp",
+		"azure",
+		"kubernetes",
+		"docker",
+		"hyperai",
 	}
 
 	validResourceTypes = map[string][]string{

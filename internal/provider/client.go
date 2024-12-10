@@ -149,27 +149,27 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 	// Read the response body once and store it in a variable
 	defer resp.Body.Close()
-	resp_body, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(resp.Body)
 
 	// Print the response body as JSON if available
-	if len(resp_body) > 0 {
+	if len(respBody) > 0 {
 		var prettyBody map[string]interface{}
-		if err := json.Unmarshal(resp_body, &prettyBody); err == nil {
+		if err := json.Unmarshal(respBody, &prettyBody); err == nil {
 			prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
 			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body (JSON):\n%s", prettyJSON))
 		} else {
-			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body:\n%s", string(resp_body)))
+			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body:\n%s", string(respBody)))
 		}
 	}
 
 	tflog.Info(ctx, fmt.Sprintf("[ZENML] Response status: %d", resp.StatusCode))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(resp_body))
+		return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	// Re-wrap the body so that the caller can still read it
-	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
+	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 	return resp, resp.StatusCode, nil
 }
@@ -251,19 +251,7 @@ func (c *Client) DeleteStack(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[StackResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
+	params = initializeListParams(params)
 
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
@@ -350,19 +338,7 @@ func (c *Client) DeleteComponent(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStackComponents(ctx context.Context, workspace string, params *ListParams) (*Page[ComponentResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
+	params = initializeListParams(params)
 
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
@@ -463,19 +439,7 @@ func (c *Client) DeleteServiceConnector(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) (*Page[ServiceConnectorResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
+	params = initializeListParams(params)
 
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
@@ -497,6 +461,19 @@ func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) 
 	}
 
 	return &result, nil
+}
+
+func initializeListParams(params *ListParams) *ListParams {
+	if params == nil {
+		params = &ListParams{}
+	}
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 100
+	}
+	return params
 }
 
 // Add this new method to the Client
