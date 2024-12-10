@@ -10,6 +10,8 @@ Thank you for your interest in contributing to the ZenML Terraform Provider! Thi
 
 ## Setting Up Development Environment
 
+In general, we follow the ["fork-and-pull" Git workflow](https://github.com/susam/gitpr)
+
 1. Fork the repository and clone your fork:
 ```bash
 git clone git@github.com:YOUR_USERNAME/terraform-provider-zenml.git
@@ -21,15 +23,22 @@ cd terraform-provider-zenml
 git remote add upstream git@github.com:zenml-io/terraform-provider-zenml.git
 ```
 
-3. Install dependencies:
+3. Check out the main branch:
+```bash
+git checkout main
+```
+
+4. Install dependencies:
 ```bash
 go mod download
 ```
 
 ## Making Changes
 
-1. Create a new branch for your changes:
+1. Create a new branch for your changes (off the main branch):
 ```bash
+git checkout main
+git pull
 git checkout -b feature/your-feature-name
 ```
 
