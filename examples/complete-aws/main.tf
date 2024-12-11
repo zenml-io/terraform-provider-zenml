@@ -289,6 +289,7 @@ resource "zenml_stack_component" "image_builder" {
 
   configuration = {
     code_build_project = aws_codebuild_project.image_builder.name
+    build_image        = "public.ecr.aws/litebox/docker-dind-awscli:latest"
   }
 
   connector_id = zenml_service_connector.aws.id
