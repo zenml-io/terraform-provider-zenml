@@ -35,8 +35,20 @@ resource "zenml_stack_component" "artifact_store" {
 ## Argument Reference
 
 * `name` - (Required) The name of the stack component.
-* `type` - (Required) The type of the stack component (e.g., "artifact_store", "orchestrator"). Must be one of the valid component types supported by ZenML.
-* `flavor` - (Required) The flavor of the stack component (e.g., "local", "gcp", "aws").
+* `type` - (Required) The type of the stack component. Must be one of the valid component types supported by ZenML:
+  * `alerter` - Alerter
+  * `annotator` - Annotator
+  * `artifact_store` - Artifact store
+  * `container_registry` - Container registry
+  * `data_validator` - Data validator
+  * `experiment_tracker` - Experiment tracker
+  * `feature_store` - Feature store
+  * `image_builder` - Image builder
+  * `model_deployer` - Model deployer
+  * `orchestrator` - Orchestrator
+  * `step_operator` - Step operator
+  * `model_registry` - Model registry
+* `flavor` - (Required) The flavor of the stack component (e.g., "local", "gcp", "aws"). To find out which flavors are supported by a component type, run `zenml stack-component describe-type <component-type>` or visit the [Component Gallery section of the ZenML documentation](https://docs.zenml.io/stack-components/component-guide) for more information.
 * `workspace` - (Required, Forces new resource) The name of the workspace this component belongs to.
 * `configuration` - (Optional, Sensitive) A map of configuration key-value pairs for the component.
 * `connector_id` - (Optional) The ID of the service connector to use with this component. Must be specified together with `connector_resource_id`.
