@@ -50,7 +50,7 @@ resource "zenml_service_connector" "gcp_connector" {
   * Kubernetes: `password` or `token`. Run `zenml service-connector describe-type kubernetes` or visit the [Kubernetes Service Connector ZenML documentation page](https://docs.zenml.io/how-to/infrastructure-deployment/auth-management/kubernetes-service-connector) for more information.
 * `workspace` - (Optional) The workspace this connector belongs to. Defaults to "default". Forces new resource if changed.
 * `resource_type` - (Optional) A resource type this connector can be used for (e.g., `s3-bucket`, `kubernetes-cluster`, `docker-registry`). To find out which resource types are supported by a connector, run `zenml service-connector describe-type <connector-type>`.
-* `configuration` - (Required, Sensitive) A map of configuration key-value pairs for the connector.
+* `configuration` - (Required, Sensitive) A map of configuration key-value pairs for the connector. Every authentication method has its own set of required and optional configuration parameters. To find out which parameters are required and optional for a given authentication method, run `zenml service-connector describe-type <connector-type> -a <auth-method>` or visit the [Service Connector ZenML documentation page](https://docs.zenml.io/how-to/infrastructure-deployment/auth-management) for the connector type and authentication method for more information.
 * `labels` - (Optional) A map of labels to associate with the connector.
 
 ## Attributes Reference
