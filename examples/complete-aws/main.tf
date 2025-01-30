@@ -28,9 +28,31 @@ resource "aws_s3_bucket" "artifacts" {
 }
 
 # Create ECR repository for ZenML containers
-
 resource "aws_ecr_repository" "containers" {
   name = "zenml-containers-${var.environment}"
+}
+
+# Create CodeBuild project for SageMaker
+resource "aws_codebuild_project" "image_builder" {
+  name          = "CodeBuildProject"
+  build_timeout = 60
+  service_role  = aws_iam_role.zenml.arn
+
+  source {
+    type     = "S3"
+    location = "${aws_s3_bucket.artifacts.bucket}/source.zip"
+  }
+
+  environment {
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = false
+  }
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
 }
 
 # Create IAM user and role with required permissions and keys
@@ -152,6 +174,40 @@ resource aws_iam_role_policy_attachment "sagemaker_policy" {
   role = aws_iam_role.zenml.name
 }
 
+resource "aws_iam_role_policy" "codebuild_policy" {
+  name = "CodeBuildPolicy"
+  role = aws_iam_role.zenml.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "codebuild:StartBuild",
+          "codebuild:BatchGetBuilds",
+          "codebuild:StopBuild",
+          "codebuild:RetryBuild",
+          "codebuild:BatchGetProjects"
+        ]
+        Resource = aws_codebuild_project.image_builder.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = [
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/${aws_codebuild_project.image_builder.name}",
+          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/${aws_codebuild_project.image_builder.name}:*"
+        ]
+      }
+    ]
+  })
+}
+
 # ZenML Service Connector for AWS
 resource "zenml_service_connector" "aws" {
   name           = "aws-${var.environment}"
@@ -225,6 +281,20 @@ resource "zenml_stack_component" "orchestrator" {
   }
 }
 
+# AWS Image Builder Component
+resource "zenml_stack_component" "image_builder" {
+  name   = "aws-image-builder-${var.environment}"
+  type   = "image_builder"
+  flavor = "aws"
+
+  configuration = {
+    code_build_project = aws_codebuild_project.image_builder.name
+    build_image        = "public.ecr.aws/litebox/docker-dind-awscli:latest"
+  }
+
+  connector_id = zenml_service_connector.aws.id
+}
+
 # Complete Stack
 resource "zenml_stack" "aws_stack" {
   name = "aws-${var.environment}"
@@ -233,6 +303,7 @@ resource "zenml_stack" "aws_stack" {
     artifact_store     = zenml_stack_component.artifact_store.id
     container_registry = zenml_stack_component.container_registry.id
     orchestrator      = zenml_stack_component.orchestrator.id
+    image_builder     = zenml_stack_component.image_builder.id
   }
 
   labels = {
