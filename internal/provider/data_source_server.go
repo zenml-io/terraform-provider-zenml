@@ -1,3 +1,4 @@
+// Package provider contains the implementation of the ZenML Terraform provider.
 package provider
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
+// dataSourceServer returns a Terraform resource schema for the ZenML server information.
 func dataSourceServer() *schema.Resource {
 	return &schema.Resource{
 		Description: "Data source for global ZenML server information",
@@ -55,9 +57,12 @@ func dataSourceServer() *schema.Resource {
 	}
 }
 
+// dataSourceServerRead reads the server information from the ZenML server and sets the corresponding fields in the Terraform state.
 func dataSourceServerRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*Client)
-
+	c, ok := m.(*Client)
+	if !ok {
+		return diag.FromErr(fmt.Errorf("unexpected type for client: %T", m))
+	}
 	server, err := c.GetServerInfo(ctx)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("error fetching server info: %v", err))

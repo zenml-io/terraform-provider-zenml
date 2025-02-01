@@ -93,8 +93,8 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 	name := d.Get("name").(string)
 	id := d.Get("id").(string)
 
-	var err error = nil
-	var connector *ServiceConnectorResponse = nil
+	var err error
+	var connector *ServiceConnectorResponse
 
 	if id != "" {
 		connector, err = c.GetServiceConnector(ctx, id)
@@ -120,20 +120,20 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 
 	if connector.Body != nil {
 
-		connector_type := ""
+		connectorType := ""
 
 		// Unmarshal the connector type, which can be either a string or a struct
 		// Try to unmarshal as string
-		err = json.Unmarshal(connector.Body.ConnectorType, &connector_type)
+		err = json.Unmarshal(connector.Body.ConnectorType, &connectorType)
 		if err != nil {
-			var type_struct ServiceConnectorType
+			var typeStruct ServiceConnectorType
 			// Try to unmarshal as struct
-			if err = json.Unmarshal(connector.Body.ConnectorType, &type_struct); err == nil {
-				connector_type = type_struct.ConnectorType
+			if err = json.Unmarshal(connector.Body.ConnectorType, &typeStruct); err == nil {
+				connectorType = typeStruct.ConnectorType
 			}
 		}
 
-		if err := d.Set("type", connector_type); err != nil {
+		if err := d.Set("type", connectorType); err != nil {
 			return diag.FromErr(err)
 		}
 
@@ -145,7 +145,9 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 		if len(connector.Body.ResourceTypes) == 1 {
 			d.Set("resource_type", connector.Body.ResourceTypes[0])
 		} else {
-			d.Set("resource_type", "")
+			if err := d.Set("resource_type", ""); err != nil {
+				return diag.FromErr(err)
+			}
 		}
 
 		if connector.Body.ResourceID != nil {

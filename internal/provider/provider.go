@@ -1,4 +1,5 @@
 // provider.go
+// This file defines the ZenML Terraform provider, including its schema, resources, and data sources.
 package provider
 
 import (
@@ -51,7 +52,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	apiKey := d.Get("api_key").(string)
 	apiToken := d.Get("api_token").(string)
 
-	// Should be handled by the schema
+	// The schema should ensure that the server_url is not empty
 	if serverURL == "" {
 		return nil, diag.Errorf("server_url must be configured")
 	}

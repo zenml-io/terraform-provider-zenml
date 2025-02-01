@@ -84,8 +84,8 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 
-	var stack *StackResponse = nil
-	var err error = nil
+	var stack *StackResponse
+	var err error
 
 	if id != "" {
 		// Get stack by ID
@@ -142,7 +142,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 
 		// Extract keys
 		keys := make([]string, 0, len(stack.Metadata.Components))
-		for key, _ := range stack.Metadata.Components {
+		for key := range stack.Metadata.Components {
 			keys = append(keys, key)
 		}
 
@@ -154,13 +154,13 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 			componentList := stack.Metadata.Components[key]
 			var componentData map[string]string
 			for _, component := range componentList {
+				// Only take the first component of each type
 				componentData = map[string]string{
 					"id":     component.ID,
 					"name":   component.Name,
 					"type":   component.Body.Type,
 					"flavor": component.Body.Flavor,
 				}
-				// Only take the first component of each type
 				break
 			}
 			components = append(components, componentData)
