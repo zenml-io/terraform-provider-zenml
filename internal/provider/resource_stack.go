@@ -18,12 +18,6 @@ func resourceStack() *schema.Resource {
 		DeleteContext: resourceStackDelete,
 
 		Schema: map[string]*schema.Schema{
-			"workspace": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  "default",
-				ForceNew: true,
-			},
 			"name": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -80,9 +74,6 @@ func resourceStack() *schema.Resource {
 func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(*Client)
 
-	// Get the workspace from schema instead of hardcoding
-	workspace := d.Get("workspace").(string)
-
 	stack := StackRequest{
 		Name: d.Get("name").(string),
 	}
@@ -106,7 +97,7 @@ func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interfac
 		stack.Labels = labels
 	}
 
-	resp, err := client.CreateStack(ctx, workspace, stack)
+	resp, err := client.CreateStack(ctx, stack)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("error creating stack: %w", err))
 	}
@@ -144,10 +135,6 @@ func resourceStackRead(ctx context.Context, d *schema.ResourceData, m interface{
 
 	// Handle labels if present
 	if stack.Metadata != nil && stack.Metadata.Labels != nil {
-
-		if stack.Metadata.Workspace.Name != "default" {
-			d.Set("workspace", stack.Metadata.Workspace.Name)
-		}
 
 		d.Set("labels", stack.Metadata.Labels)
 	}

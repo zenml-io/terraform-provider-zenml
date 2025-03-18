@@ -27,7 +27,6 @@ The following arguments are supported:
 
 * `id` - (Optional) The ID of the stack component to retrieve. Either `id` or `name` must be provided.
 * `name` - (Optional) The name of the stack component to retrieve. Either `id` or `name` must be provided.
-* `workspace` - (Optional) The workspace ID to filter the component search. If not provided, the default workspace will be used.
 
 ## Attributes Reference
 
@@ -38,7 +37,6 @@ In addition to all arguments above, the following attributes are exported:
 * `type` - The type of the stack component (e.g., "artifact_store", "orchestrator", etc.).
 * `flavor` - The flavor of the stack component (e.g., "local", "gcp", "aws", etc.).
 * `configuration` - A map of configuration key-value pairs for the stack component.
-* `workspace` - The workspace ID this stack component belongs to.
 * `labels` - A map of labels associated with this stack component.
 * `connector` - The ID of the service connector associated with this stack component.
 * `connector_resource_id` - The ID of the resource the service connector is connected to.

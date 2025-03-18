@@ -17,7 +17,6 @@ resource "zenml_stack_component" "artifact_store" {
   name      = "my-artifact-store"
   type      = "artifact_store"
   flavor    = "gcp"
-  workspace = "default"
   
   configuration = {
     path = "gs://my-bucket/artifacts"
@@ -28,7 +27,6 @@ resource "zenml_stack_component" "orchestrator" {
   name      = "my-orchestrator"
   type      = "orchestrator"
   flavor    = "kubernetes"
-  workspace = "default"
   
   configuration = {
     kubernetes_context = "my-k8s-cluster"
@@ -68,9 +66,6 @@ resource "zenml_stack" "my_stack" {
   * `feature_store`
   * `image_builder`
 * `labels` - (Optional) A map of labels to associate with the stack.
-* `workspace` - (Optional) The workspace to create the stack in. Defaults to "default". Forces new resource if changed.
-
--> **Note** If no workspace is specified, the stack will be created in the "default" workspace.
 
 ## Attributes Reference
 

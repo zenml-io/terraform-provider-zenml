@@ -30,12 +30,6 @@ func resourceStackComponent() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"workspace": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  "default",
-				ForceNew: true,
-			},
 			"name": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -101,17 +95,6 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 		return diag.FromErr(fmt.Errorf("error getting current user: %w", err))
 	}
 
-	workspaceName := d.Get("workspace").(string)
-
-	// Get the workspace ID
-	workspace, err := client.GetWorkspaceByName(ctx, workspaceName)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error getting workspace: %w", err))
-	}
-	if workspace == nil {
-		return diag.FromErr(fmt.Errorf("workspace not found: %s", workspaceName))
-	}
-
 	// Create the component request
 	component := ComponentRequest{
 		User:          user.ID, // Add the user ID
@@ -119,7 +102,6 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 		Type:          d.Get("type").(string),
 		Flavor:        d.Get("flavor").(string),
 		Configuration: d.Get("configuration").(map[string]interface{}),
-		Workspace:     workspace.ID,
 	}
 
 	// Handle optional fields
@@ -142,7 +124,7 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Make the API call
-	resp, err := client.CreateComponent(ctx, workspace.ID, component)
+	resp, err := client.CreateComponent(ctx, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			return diag.FromErr(fmt.Errorf("API error: %s", apiErr.Error()))
@@ -198,9 +180,6 @@ func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m i
 	if component.Metadata != nil {
 		d.Set("configuration", component.Metadata.Configuration)
 
-		if component.Metadata.Workspace.Name != "default" {
-			d.Set("workspace", component.Metadata.Workspace.Name)
-		}
 		if component.Metadata.ConnectorResourceID != nil {
 			d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID)
 		}

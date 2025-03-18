@@ -59,12 +59,6 @@ func resourceServiceConnector() *schema.Resource {
 				Computed: true,
 				ForceNew: true,
 			},
-			"workspace": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  "default",
-				ForceNew: true,
-			},
 			"labels": {
 				Type:     schema.TypeMap,
 				Optional: true,
@@ -96,20 +90,8 @@ func getConnectorRequest(ctx context.Context, d *schema.ResourceData, client *Cl
 		return nil, fmt.Errorf("error getting current user: %w", err)
 	}
 
-	// Get workspace name, defaulting to "default"
-	workspaceName := d.Get("workspace").(string)
-
-	// Get the workspace ID
-	workspace, err := client.GetWorkspaceByName(ctx, workspaceName)
-	if err != nil {
-		return nil, fmt.Errorf("error getting workspace: %w", err)
-	} else if workspace == nil {
-		return nil, fmt.Errorf("workspace not found: %s", workspaceName)
-	}
-
 	connector := ServiceConnectorRequest{
 		User:          user.ID,
-		Workspace:     workspace.ID, // Use the workspace ID from the response
 		Name:          d.Get("name").(string),
 		ConnectorType: d.Get("type").(string),
 		AuthMethod:    d.Get("auth_method").(string),
@@ -170,7 +152,7 @@ func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData,
 			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
 		}
 
-		resp, err := client.CreateServiceConnector(ctx, connector.Workspace, *connector)
+		resp, err := client.CreateServiceConnector(ctx, *connector)
 		if err != nil {
 			return retry.NonRetryableError(fmt.Errorf("Error creating service connector: %s", err))
 		}
@@ -239,9 +221,6 @@ func resourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	if connector.Metadata != nil {
-		if connector.Metadata.Workspace.Name != "default" {
-			d.Set("workspace", connector.Metadata.Workspace.Name)
-		}
 		d.Set("configuration", connector.Metadata.Configuration)
 		d.Set("labels", connector.Metadata.Labels)
 	}

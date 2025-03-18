@@ -190,8 +190,8 @@ func (c *Client) GetServerInfo(ctx context.Context) (*ServerInfo, error) {
 }
 
 // Stack operations
-func (c *Client) CreateStack(ctx context.Context, workspace string, stack StackRequest) (*StackResponse, error) {
-	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/stacks", workspace)
+func (c *Client) CreateStack(ctx context.Context, stack StackRequest) (*StackResponse, error) {
+	endpoint := "/api/v1/stacks"
 	resp, _, err := c.doRequest(ctx, "POST", endpoint, stack)
 	if err != nil {
 		return nil, err
@@ -289,8 +289,8 @@ func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[Stac
 }
 
 // Component operations...
-func (c *Client) CreateComponent(ctx context.Context, workspace string, component ComponentRequest) (*ComponentResponse, error) {
-	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/components", workspace)
+func (c *Client) CreateComponent(ctx context.Context, component ComponentRequest) (*ComponentResponse, error) {
+	endpoint := "/api/v1/components"
 	resp, _, err := c.doRequest(ctx, "POST", endpoint, component)
 	if err != nil {
 		return nil, err
@@ -349,7 +349,7 @@ func (c *Client) DeleteComponent(ctx context.Context, id string) error {
 	return nil
 }
 
-func (c *Client) ListStackComponents(ctx context.Context, workspace string, params *ListParams) (*Page[ComponentResponse], error) {
+func (c *Client) ListStackComponents(ctx context.Context, params *ListParams) (*Page[ComponentResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -371,7 +371,7 @@ func (c *Client) ListStackComponents(ctx context.Context, workspace string, para
 		query.Add(k, v)
 	}
 
-	path := fmt.Sprintf("/api/v1/workspaces/%s/components?%s", workspace, query.Encode())
+	path := fmt.Sprintf("/api/v1/components?%s", query.Encode())
 	resp, _, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -401,8 +401,8 @@ func (c *Client) VerifyServiceConnector(ctx context.Context, connector ServiceCo
 	return &result, nil
 }
 
-func (c *Client) CreateServiceConnector(ctx context.Context, workspace string, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
-	endpoint := fmt.Sprintf("/api/v1/workspaces/%s/service_connectors", workspace)
+func (c *Client) CreateServiceConnector(ctx context.Context, connector ServiceConnectorRequest) (*ServiceConnectorResponse, error) {
+	endpoint := "/api/v1/service_connectors"
 	resp, _, err := c.doRequest(ctx, "POST", endpoint, connector)
 	if err != nil {
 		return nil, err
@@ -500,11 +500,10 @@ func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) 
 }
 
 // Add this new method to the Client
-func (c *Client) GetServiceConnectorByName(ctx context.Context, workspace, name string) (*ServiceConnectorResponse, error) {
+func (c *Client) GetServiceConnectorByName(ctx context.Context, name string) (*ServiceConnectorResponse, error) {
 	params := &ListParams{
 		Filter: map[string]string{
-			"name":      name,
-			"workspace": workspace,
+			"name": name,
 		},
 	}
 
@@ -521,18 +520,18 @@ func (c *Client) GetServiceConnectorByName(ctx context.Context, workspace, name 
 }
 
 // Add this new method to the Client
-func (c *Client) GetWorkspaceByName(ctx context.Context, name string) (*WorkspaceResponse, error) {
-	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/workspaces/%s", name), nil)
+func (c *Client) GetProjectByName(ctx context.Context, name string) (*ProjectResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/projects/%s", name), nil)
 	if err != nil {
 		if status == 404 {
-			// Return nil if the workspace is not found
+			// Return nil if the project is not found
 			return nil, nil
 		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var result WorkspaceResponse
+	var result ProjectResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("error decoding response: %v", err)
 	}

@@ -7,7 +7,3 @@ variable "zenml_api_key" {
   type      = string
   sensitive = true
 }
-
-variable "workspace_id" {
-  type = string
-}
