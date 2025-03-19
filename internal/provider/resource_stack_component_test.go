@@ -4,7 +4,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -130,17 +129,11 @@ func testAccCheckStackComponentDestroy(s *terraform.State) error {
 }
 
 func testAccStackComponentConfig_basic() string {
-	workspace := os.Getenv("ZENML_WORKSPACE")
-	if workspace == "" {
-		workspace = "default"
-	}
-
-	return fmt.Sprintf(`
+	return `
 resource "zenml_stack_component" "test" {
 	name      = "test-store"
 	type      = "artifact_store"
 	flavor    = "local"
-	workspace = "%s"
 	
 	configuration = {
 		path = "/tmp/artifacts"
@@ -149,22 +142,15 @@ resource "zenml_stack_component" "test" {
 	labels = {
 		environment = "test"
 	}
-}
-`, workspace)
+}`
 }
 
 func testAccStackComponentConfig_update() string {
-	workspace := os.Getenv("ZENML_WORKSPACE")
-	if workspace == "" {
-		workspace = "default"
-	}
-
-	return fmt.Sprintf(`
+	return `
 resource "zenml_stack_component" "test" {
 	name      = "updated-store"
 	type      = "artifact_store"
 	flavor    = "local"
-	workspace = "%s"
 	
 	configuration = {
 		path = "/tmp/artifacts-updated"
@@ -174,21 +160,15 @@ resource "zenml_stack_component" "test" {
 		environment = "staging"
 		team        = "ml"
 	}
-}
-`, workspace)
+}`
 }
 
 func testAccStackComponentConfig_withConnector() string {
-	workspace := os.Getenv("ZENML_WORKSPACE")
-	if workspace == "" {
-		workspace = "default"
-	}
-	return fmt.Sprintf(`
+	return `
 resource "zenml_service_connector" "test" {
 	name        = "test-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	workspace = "%s"
 	
 	resource_type = "gcs-bucket"
 	
@@ -205,7 +185,6 @@ resource "zenml_stack_component" "test" {
 	name      = "test-store"
 	type      = "artifact_store"
 	flavor    = "gcp"
-	workspace = "%s"
 	
 	configuration = {
 		path = "gs://test-bucket/artifacts"
@@ -216,6 +195,5 @@ resource "zenml_stack_component" "test" {
 	labels = {
 		environment = "test"
 	}
-}
-`, workspace, workspace)
+}`
 }

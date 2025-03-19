@@ -19,12 +19,6 @@ func dataSourceServiceConnector() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 			},
-			"workspace": {
-				Description: "Name of the workspace (defaults to 'default')",
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "default",
-			},
 			"name": {
 				Description: "Name of the service connector",
 				Type:        schema.TypeString,
@@ -89,7 +83,6 @@ func dataSourceServiceConnector() *schema.Resource {
 func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	c := m.(*Client)
 
-	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 	id := d.Get("id").(string)
 
@@ -99,7 +92,7 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 	if id != "" {
 		connector, err = c.GetServiceConnector(ctx, id)
 	} else if name != "" {
-		connector, err = c.GetServiceConnectorByName(ctx, workspace, name)
+		connector, err = c.GetServiceConnectorByName(ctx, name)
 	} else {
 		return diag.FromErr(fmt.Errorf("either 'id' or 'name' must be set"))
 	}
@@ -178,10 +171,6 @@ func dataSourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData,
 	}
 
 	if connector.Metadata != nil {
-		if err := d.Set("workspace", connector.Metadata.Workspace.Name); err != nil {
-			return diag.FromErr(err)
-		}
-
 		if err := d.Set("configuration", connector.Metadata.Configuration); err != nil {
 			return diag.FromErr(err)
 		}

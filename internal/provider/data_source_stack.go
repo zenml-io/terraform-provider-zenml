@@ -19,12 +19,6 @@ func dataSourceStack() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 			},
-			"workspace": {
-				Description: "Name of the workspace (defaults to 'default')",
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "default",
-			},
 			"name": {
 				Description: "Name of the stack",
 				Type:        schema.TypeString,
@@ -81,7 +75,6 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 	c := m.(*Client)
 
 	id := d.Get("id").(string)
-	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 
 	var stack *StackResponse = nil
@@ -97,8 +90,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 		// List stacks with filter to find by name
 		params := &ListParams{
 			Filter: map[string]string{
-				"name":      name,
-				"workspace": workspace,
+				"name": name,
 			},
 		}
 
@@ -108,7 +100,7 @@ func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interfac
 		}
 
 		if len(stacks.Items) == 0 {
-			return diag.FromErr(fmt.Errorf("no stack found with name %s in workspace %s", name, workspace))
+			return diag.FromErr(fmt.Errorf("no stack found with name %s", name))
 		}
 
 		stack = &stacks.Items[0]

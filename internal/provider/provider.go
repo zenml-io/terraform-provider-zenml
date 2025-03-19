@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
@@ -28,6 +29,12 @@ func Provider() *schema.Provider {
 				Sensitive:   true,
 				DefaultFunc: schema.EnvDefaultFunc("ZENML_API_TOKEN", nil),
 			},
+			"skip_version_check": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "Skip the ZenML server version compatibility check. Use with caution as it may lead to unexpected behavior.",
+			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
 			"zenml_stack":             resourceStack(),
@@ -50,6 +57,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	serverURL := d.Get("server_url").(string)
 	apiKey := d.Get("api_key").(string)
 	apiToken := d.Get("api_token").(string)
+	skipVersionCheck := d.Get("skip_version_check").(bool)
 
 	// Should be handled by the schema
 	if serverURL == "" {
@@ -83,8 +91,45 @@ or use the ZENML_API_KEY environment variable to set the API key.`,
 	}
 
 	// Test the client connection
-	// You might want to add a simple API call here to verify the connection
-	client.GetServerInfo(ctx)
+	serverInfo, err := client.GetServerInfo(ctx)
+	if err != nil {
+		return nil, diag.Errorf("failed to get server info: %v", err)
+	}
+
+	if !skipVersionCheck {
+		serverVersion, err := version.NewVersion(serverInfo.Version)
+		if err != nil {
+			return nil, diag.Errorf("Failed to parse server version: %s", err)
+		}
+
+		constraintStr := ">= 0.80.0"
+		constraint, err := version.NewConstraint(constraintStr)
+		if err != nil {
+			return nil, diag.Errorf("Failed to parse version constraint: %s", err)
+		}
+
+		if !constraint.Check(serverVersion) {
+			return nil, diag.Errorf(
+				"ZenML server version must be at least 0.80.0 to use the current Terraform provider version (current version: %s)\n\n"+
+					"To resolve this:\n\n"+
+					"1. Upgrade your ZenML server to version 0.80.0 or higher, or\n"+
+					"2. Add a provider version constraint to your Terraform configuration:\n\n"+
+					"    terraform {\n"+
+					"      required_providers {\n"+
+					"        zenml = {\n"+
+					"          source  = \"zenml/zenml\"\n"+
+					"          version = \"< 2.0.0\"\n"+
+					"        }\n"+
+					"      }\n"+
+					"    }\n\n"+
+					"3. Use the skip_version_check attribute to skip this version check:\n\n"+
+					"    provider \"zenml\" {\n"+
+					"      skip_version_check = true\n"+
+					"    }",
+				serverInfo.Version,
+			)
+		}
+	}
 
 	return client, diags
 }

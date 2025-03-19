@@ -20,12 +20,6 @@ func dataSourceStackComponent() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 			},
-			"workspace": {
-				Description: "Name of the workspace (defaults to 'default')",
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "default",
-			},
 			"name": {
 				Description: "Name of the stack component",
 				Type:        schema.TypeString,
@@ -126,7 +120,6 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 	c := m.(*Client)
 
 	id := d.Get("id").(string)
-	workspace := d.Get("workspace").(string)
 	name := d.Get("name").(string)
 	componentType := d.Get("type").(string)
 
@@ -142,20 +135,19 @@ func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m
 		// List components with filters
 		params := &ListParams{
 			Filter: map[string]string{
-				"name":      name,
-				"workspace": workspace,
-				"type":      componentType,
+				"name": name,
+				"type": componentType,
 			},
 		}
 
-		components, err := c.ListStackComponents(ctx, workspace, params)
+		components, err := c.ListStackComponents(ctx, params)
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("error listing stack components: %v", err))
 		}
 
 		if len(components.Items) == 0 {
-			return diag.FromErr(fmt.Errorf("no component found with name %s and type %s in workspace %s",
-				name, componentType, workspace))
+			return diag.FromErr(fmt.Errorf("no component found with name %s and type %s",
+				name, componentType))
 		}
 
 		component = &components.Items[0]

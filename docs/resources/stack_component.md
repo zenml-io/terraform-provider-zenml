@@ -16,7 +16,6 @@ resource "zenml_stack_component" "artifact_store" {
   name      = "my-artifact-store"
   type      = "artifact_store"
   flavor    = "gcp"
-  workspace = "default"
   
   configuration = {
     path = "gs://my-bucket/artifacts"
@@ -49,7 +48,6 @@ resource "zenml_stack_component" "artifact_store" {
   * `step_operator` - Step operator
   * `model_registry` - Model registry
 * `flavor` - (Required) The flavor of the stack component (e.g., "local", "gcp", "aws"). To find out which flavors are supported by a component type, run `zenml stack-component describe-type <component-type>` or visit the [Component Gallery section of the ZenML documentation](https://docs.zenml.io/stack-components/component-guide) for more information.
-* `workspace` - (Required, Forces new resource) The name of the workspace this component belongs to.
 * `configuration` - (Optional, Sensitive) A map of configuration key-value pairs for the component.
 * `connector_id` - (Optional) The ID of the service connector to use with this component. Must be specified together with `connector_resource_id`.
 * `connector_resource_id` - (Optional) The ID of the connector resource to use with this component. Must be specified together with `connector_id`.

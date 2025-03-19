@@ -4,7 +4,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
@@ -113,16 +112,11 @@ func testAccCheckServiceConnectorDestroy(s *terraform.State) error {
 }
 
 func testAccServiceConnectorConfig_basic() string {
-	workspace := os.Getenv("ZENML_WORKSPACE")
-	if workspace == "" {
-		workspace = "default"
-	}
-	return fmt.Sprintf(`
+	return `
 resource "zenml_service_connector" "test" {
 	name        = "test-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	workspace   = "%s"
 	
 	resource_type = "gcs-bucket"
 	
@@ -137,21 +131,15 @@ resource "zenml_service_connector" "test" {
 	labels = {
 		environment = "test"
 	}
-}
-`, workspace)
+}`
 }
 
 func testAccServiceConnectorConfig_update() string {
-	workspace := os.Getenv("ZENML_WORKSPACE")
-	if workspace == "" {
-		workspace = "default"
-	}
-	return fmt.Sprintf(`
+	return `
 resource "zenml_service_connector" "test" {
 	name        = "updated-connector"
 	type        = "gcp"
 	auth_method = "service-account"
-	workspace   = "%s"
 		
 	configuration = {
 		project_id = "test-project"
@@ -166,6 +154,5 @@ resource "zenml_service_connector" "test" {
 		environment = "staging"
 		team        = "ml"
 	}
-}
-`, workspace)
+}`
 }

@@ -28,7 +28,6 @@ The following arguments are supported:
 
 * `id` - (Optional) The ID of the service connector to retrieve. Either `id` or `name` must be provided.
 * `name` - (Optional) The name of the service connector to retrieve. Either `id` or `name` must be provided.
-* `workspace` - (Optional) The workspace ID to filter the service connector search. If not provided, the default workspace will be used.
 
 ## Attributes Reference
 
@@ -41,7 +40,6 @@ In addition to all arguments above, the following attributes are exported:
 * `resource_type` - The type of resource the service connector is connected to (e.g., "s3-bucket", "docker-registry", etc.).
 * `resource_id` - The ID of the resource the service connector is connected to.
 * `configuration` - A map of configuration key-value pairs for the service connector. Sensitive values are not included.
-* `workspace` - The workspace ID this service connector belongs to.
 * `labels` - A map of labels associated with this service connector.
 
 ## Import
