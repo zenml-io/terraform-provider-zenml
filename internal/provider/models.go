@@ -25,14 +25,20 @@ func (e *APIError) Error() string {
 
 // ServerInfo represents the server information response from the API
 type ServerInfo struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Version        string            `json:"version"`
-	DeploymentType string            `json:"deployment_type"`
-	AuthScheme     string            `json:"auth_scheme"`
-	ServerURL      string            `json:"server_url"`
-	DashboardURL   string            `json:"dashboard_url"`
-	Metadata       map[string]string `json:"metadata"`
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	Version             string            `json:"version"`
+	DeploymentType      string            `json:"deployment_type"`
+	AuthScheme          string            `json:"auth_scheme"`
+	ServerURL           string            `json:"server_url"`
+	DashboardURL        string            `json:"dashboard_url"`
+	ProDashboardURL     *string           `json:"pro_dashboard_url"`
+	ProAPIURL           *string           `json:"pro_api_url"`
+	ProOrganizationID   *string           `json:"pro_organization_id"`
+	ProOrganizationName *string           `json:"pro_organization_name"`
+	ProWorkspaceID      *string           `json:"pro_workspace_id"`
+	ProWorkspaceName    *string           `json:"pro_workspace_name"`
+	Metadata            map[string]string `json:"metadata"`
 }
 
 // StackRequest represents a request to create a new stack
