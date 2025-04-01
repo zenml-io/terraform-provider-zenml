@@ -44,7 +44,7 @@ terraform {
 
 ### Authentication
 
-Configure the provider with your ZenML server URL and API key:
+Configure the provider with your ZenML server URL and API key or API token.
 
 ```hcl
 provider "zenml" {
@@ -61,9 +61,21 @@ in your dashboard:
 
 It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io`.
 
+You have two options to provide a token or key:
+
 #### Option 1: Using `ZENML_API_KEY`
 
+You can input the `ZENML_API_KEY` as follows: 
+
+```hcl
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_key    = "your-api-key"
+}
+```
+
 You can also use environment variables:
+
 ```bash
 export ZENML_SERVER_URL="https://your-zenml-server.com"
 export ZENML_API_KEY="your-api-key"
@@ -88,7 +100,7 @@ zenml service-account create <MYSERVICEACCOUNTNAME>
 
 This command will print out the `ZENML_API_KEY` that you can use with this provider.
 
-#### Option 1: Using `ZENML_API_TOKEN`
+#### Option 2: Using `ZENML_API_TOKEN`
 
 Alternatively, you can use an API token for authentication:
 
