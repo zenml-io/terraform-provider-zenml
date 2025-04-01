@@ -59,7 +59,7 @@ in your dashboard:
 
 ![ZenML workspace URL](assets/workspace_url.png)
 
-It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io/`.
+It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io`.
 
 #### Option 1: Using `ZENML_API_KEY`
 
