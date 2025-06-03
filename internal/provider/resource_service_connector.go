@@ -216,8 +216,6 @@ func resourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m
 		} else {
 			d.Set("resource_type", "")
 		}
-
-		d.Set("user", connector.Body.User.Name)
 	}
 
 	if connector.Metadata != nil {
