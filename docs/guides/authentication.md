@@ -9,14 +9,7 @@ description: |-
 
 The ZenML provider requires authentication to interact with your ZenML server. The provider uses API key authentication to obtain access tokens.
 
-## Configuration
-
-The provider can be configured using environment variables:
-
-* `ZENML_SERVER_URL` - (Required) The URL of your ZenML server
-* `ZENML_API_KEY` - (Required) Your ZenML API key
-
-Alternatively, you can provide these credentials directly in the provider configuration:
+Configure the provider with your ZenML server URL and API key or API token.
 
 ```hcl
 provider "zenml" {
@@ -25,36 +18,69 @@ provider "zenml" {
 }
 ```
 
-!> **Warning:** Hard-coding credentials into your Terraform configuration is not recommended. Use environment variables or other secure methods to provide credentials.
+For OSS users, the `server_url` is basically the root URL of your ZenML server deployment.
+For Pro users, the `server_url` is the the URL of your workspace, which can be found
+in your dashboard:
 
-## Authentication Process
+![ZenML workspace URL](../../assets/workspace_url.png)
 
-The provider automatically handles the authentication process by:
-1. Making a login request to `/api/v1/login` with your API key
-2. Obtaining an access token
-3. Using this token for subsequent API requests
+It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io`.
 
-The access token is automatically refreshed for each request to ensure continuous operation.
+You have two options to provide a token or key:
 
-## Obtaining Credentials
+#### Option 1: Using `ZENML_API_KEY`
 
-1. **Server URL**: This is the URL where your ZenML server is hosted. For example: `https://your-zenml-server.com`
+You can input the `ZENML_API_KEY` as follows: 
 
-2. **API Key**: You can generate an API key from the ZenML UI or CLI:
-   ```bash
-   zenml api-key create --name="terraform" --description="For Terraform provider"
-   ```
+```hcl
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_key    = "your-api-key"
+}
+```
 
-## Best Practices
+You can also use environment variables:
 
-* Store credentials using environment variables:
-  ```bash
-  export ZENML_SERVER_URL="https://your-zenml-server.com"
-  export ZENML_API_KEY="your-api-key"
-  ```
-* Use different API keys for different environments
-* Rotate API keys regularly
-* Never commit API keys to version control
+```bash
+export ZENML_SERVER_URL="https://your-zenml-server.com"
+export ZENML_API_KEY="your-api-key"
+```
+
+To generate a `ZENML_API_KEY`, follow these steps:
+
+1. Install ZenML:
+```bash
+pip install zenml
+```
+
+2. Login to your ZenML server:
+```bash
+zenml login --url <API_URL>
+```
+
+3. Create a service account and get the API key:
+```bash
+zenml service-account create <MYSERVICEACCOUNTNAME>
+```
+
+This command will print out the `ZENML_API_KEY` that you can use with this provider.
+
+#### Option 2: Using `ZENML_API_TOKEN`
+
+Alternatively, you can use an API token for authentication:
+
+```hcl
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_token  = "your-api-token"
+}
+```
+
+You can also use environment variables:
+```bash
+export ZENML_SERVER_URL="https://your-zenml-server.com"
+export ZENML_API_TOKEN="your-api-token"
+```
 
 ## Troubleshooting
 
