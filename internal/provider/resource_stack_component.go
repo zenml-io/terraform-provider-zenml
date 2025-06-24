@@ -143,6 +143,9 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 	}
 	if resp.Metadata != nil {
 		d.Set("configuration", resp.Metadata.Configuration)
+		if resp.Metadata.Connector != nil {
+			d.Set("connector_id", resp.Metadata.Connector.ID)
+		}
 		if resp.Metadata.ConnectorResourceID != nil {
 			d.Set("connector_resource_id", *resp.Metadata.ConnectorResourceID)
 		}
@@ -180,6 +183,9 @@ func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m i
 	if component.Metadata != nil {
 		d.Set("configuration", component.Metadata.Configuration)
 
+		if component.Metadata.Connector != nil {
+			d.Set("connector_id", component.Metadata.Connector.ID)
+		}
 		if component.Metadata.ConnectorResourceID != nil {
 			d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID)
 		}
