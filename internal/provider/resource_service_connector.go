@@ -13,6 +13,28 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
+// suppressEquivalentJSONDiffs suppresses diffs for JSON strings that are semantically equivalent
+func suppressEquivalentJSONDiffsServiceConnector(k, old, new string, d *schema.ResourceData) bool {
+	// Try to parse both values as JSON
+	var oldJSON, newJSON interface{}
+	
+	if err := json.Unmarshal([]byte(old), &oldJSON); err != nil {
+		// If old value is not valid JSON, fall back to string comparison
+		return old == new
+	}
+	
+	if err := json.Unmarshal([]byte(new), &newJSON); err != nil {
+		// If new value is not valid JSON, fall back to string comparison
+		return old == new
+	}
+	
+	// Compare the unmarshaled JSON objects
+	oldBytes, _ := json.Marshal(oldJSON)
+	newBytes, _ := json.Marshal(newJSON)
+	
+	return string(oldBytes) == string(newBytes)
+}
+
 func resourceServiceConnector() *schema.Resource {
 	return &schema.Resource{
 		CreateContext: resourceServiceConnectorCreate,
@@ -51,7 +73,8 @@ func resourceServiceConnector() *schema.Resource {
 				Type:     schema.TypeMap,
 				Required: true,
 				Elem: &schema.Schema{
-					Type: schema.TypeString,
+					Type:             schema.TypeString,
+					DiffSuppressFunc: suppressEquivalentJSONDiffsServiceConnector,
 				},
 			},
 			"user": {

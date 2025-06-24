@@ -3,12 +3,35 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
+
+// suppressEquivalentJSONDiffs suppresses diffs for JSON strings that are semantically equivalent
+func suppressEquivalentJSONDiffs(k, old, new string, d *schema.ResourceData) bool {
+	// Try to parse both values as JSON
+	var oldJSON, newJSON interface{}
+	
+	if err := json.Unmarshal([]byte(old), &oldJSON); err != nil {
+		// If old value is not valid JSON, fall back to string comparison
+		return old == new
+	}
+	
+	if err := json.Unmarshal([]byte(new), &newJSON); err != nil {
+		// If new value is not valid JSON, fall back to string comparison
+		return old == new
+	}
+	
+	// Compare the unmarshaled JSON objects
+	oldBytes, _ := json.Marshal(oldJSON)
+	newBytes, _ := json.Marshal(newJSON)
+	
+	return string(oldBytes) == string(newBytes)
+}
 
 func resourceStackComponent() *schema.Resource {
 	return &schema.Resource{
@@ -50,7 +73,8 @@ func resourceStackComponent() *schema.Resource {
 				Optional:  true,
 				Sensitive: true,
 				Elem: &schema.Schema{
-					Type: schema.TypeString,
+					Type:             schema.TypeString,
+					DiffSuppressFunc: suppressEquivalentJSONDiffs,
 				},
 			},
 			"labels": {
