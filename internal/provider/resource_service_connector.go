@@ -186,6 +186,9 @@ func resourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m
 	d.Set("name", connector.Name)
 
 	if connector.Body != nil {
+		if connector.Body.User != nil {
+			d.Set("user", connector.Body.User.ID)
+		}
 
 		if connector.Body.ResourceID != nil {
 			d.Set("resource_id", connector.Body.ResourceID)
