@@ -69,7 +69,9 @@ provider "zenml" {
 
 #### ZenML Pro Authentication (Control Plane + Workspace)
 
-For ZenML Pro features that require control plane access, provide both control plane and workspace credentials:
+**⚠️ IMPORTANT**: The current Pro authentication implementation is **NOT COMPATIBLE** with the real ZenML Cloud API. The real API uses OAuth2 with Auth0, not simple service account keys.
+
+For reference, here's the intended configuration (not currently functional):
 
 ```hcl
 provider "zenml" {
@@ -85,10 +87,10 @@ provider "zenml" {
 
 #### Environment Variables
 
-You can also use environment variables:
+**⚠️ IMPORTANT**: These environment variables are for the conceptual implementation only:
 
 ```bash
-# For Control Plane (Pro features)
+# For Control Plane (Pro features) - NOT FUNCTIONAL
 export ZENML_CONTROL_PLANE_URL="https://zenml.cloud"
 export ZENML_SERVICE_ACCOUNT_KEY="your-service-account-key"
 
@@ -99,7 +101,9 @@ export ZENML_API_KEY="your-workspace-api-key"
 
 ### Authentication Flow
 
-The provider automatically chooses the appropriate authentication method:
+**⚠️ CURRENT LIMITATION**: The Pro authentication flow described below is conceptual and does not match the real ZenML Cloud API, which uses OAuth2 with Auth0.
+
+The provider was designed to automatically choose the appropriate authentication method:
 
 1. **Control Plane requests** (workspaces, teams, projects, role assignments) use `service_account_key`
 2. **Workspace requests** (stacks, components, connectors) use `api_key` or `api_token`
@@ -107,12 +111,13 @@ The provider automatically chooses the appropriate authentication method:
 
 ### Getting Your Credentials
 
-#### Service Account Key (Pro)
+#### Service Account Key (Pro) - NOT FUNCTIONAL
 
-1. Log in to your ZenML Pro dashboard
-2. Navigate to Settings → Service Accounts
-3. Create a new service account or use an existing one
-4. Copy the service account key
+The real ZenML Cloud API uses OAuth2 authentication via Auth0, not service account keys. To implement proper authentication, you would need to:
+
+1. Register an OAuth2 application with Auth0
+2. Implement the OAuth2 client credentials flow
+3. Use the access token for API requests
 
 #### Workspace API Key
 
@@ -133,20 +138,24 @@ zenml service-account create <SERVICE_ACCOUNT_NAME>
 
 ### Provider Configuration Options
 
-The provider supports flexible configuration:
+**⚠️ IMPORTANT**: The Pro configuration options below are conceptual and not functional against the real API:
 
 ```hcl
 provider "zenml" {
-  # Control Plane (required for Pro features)
-  control_plane_url   = "https://zenml.cloud"           # Optional, defaults to https://zenml.cloud
-  service_account_key = "your-service-account-key"      # Required for Pro features
+  # Control Plane (intended for Pro features) - NOT FUNCTIONAL
+  control_plane_url   = "https://zenml.cloud"           # Real API uses OAuth2
+  service_account_key = "your-service-account-key"      # Real API uses OAuth2 tokens
   
-  # Workspace (required for OSS features, optional for Pro)
-  server_url = "https://workspace.zenml.io"             # Required for OSS, optional for Pro
+  # Workspace (functional for OSS features)
+  server_url = "https://workspace.zenml.io"             # Required for OSS
   api_key    = "your-api-key"                           # Alternative: api_token
   api_token  = "your-api-token"                         # Alternative: api_key
 }
 ```
+
+### Important Notice
+
+The Pro features implementation in this provider is **conceptual only** and does not work with the real ZenML Cloud API. See [AUTHENTICATION_ANALYSIS.md](./AUTHENTICATION_ANALYSIS.md) for details on the differences between this implementation and the real API.
 
 ### Example Usage
 
@@ -180,13 +189,15 @@ resource "zenml_stack" "ml_stack" {
 
 #### Pro Usage with Multi-Workspace Management
 
+**⚠️ IMPORTANT**: The following Pro configuration is **CONCEPTUAL ONLY** and does not work with the real ZenML Cloud API. See [AUTHENTICATION_ANALYSIS.md](./AUTHENTICATION_ANALYSIS.md) for details.
+
 ```hcl
 provider "zenml" {
-  control_plane_url   = "https://zenml.cloud"
-  service_account_key = var.service_account_key
+  control_plane_url   = "https://zenml.cloud"      # NOT FUNCTIONAL - Real API uses OAuth2
+  service_account_key = var.service_account_key    # NOT FUNCTIONAL - Real API uses OAuth2
 }
 
-# Create a workspace
+# Create a workspace - CONCEPTUAL ONLY
 resource "zenml_workspace" "team_alpha" {
   name        = "team-alpha-workspace"
   description = "Workspace for Team Alpha ML projects"
@@ -198,7 +209,7 @@ resource "zenml_workspace" "team_alpha" {
   }
 }
 
-# Create teams
+# Create teams - CONCEPTUAL ONLY
 resource "zenml_team" "developers" {
   name        = "alpha-developers"
   description = "Team Alpha developers"
@@ -219,7 +230,7 @@ resource "zenml_team" "ml_engineers" {
   ]
 }
 
-# Create a project within the workspace
+# Create a project within the workspace - CONCEPTUAL ONLY
 resource "zenml_project" "recommendation_engine" {
   workspace_id = zenml_workspace.team_alpha.id
   name         = "recommendation-engine"
@@ -231,7 +242,7 @@ resource "zenml_project" "recommendation_engine" {
   }
 }
 
-# Assign workspace-level roles
+# Assign workspace-level roles - CONCEPTUAL ONLY
 resource "zenml_workspace_role_assignment" "dev_team_access" {
   workspace_id = zenml_workspace.team_alpha.id
   team_id      = zenml_team.developers.id
@@ -245,26 +256,30 @@ resource "zenml_project_role_assignment" "ml_team_project_access" {
 }
 ```
 
+**Note**: The above resources (`zenml_workspace`, `zenml_team`, `zenml_project`, role assignments) are implemented but will not work against the real ZenML Cloud API due to authentication and API structure differences.
+
 See the [examples](./examples/) directory for more complete examples, including the [complete Pro example](./examples/complete-pro/).
 
-## New Pro Resources
+## New Pro Resources (Conceptual Only)
+
+**⚠️ IMPORTANT**: These Pro resources are implemented but are **NOT COMPATIBLE** with the real ZenML Cloud API. They serve as architectural examples only.
 
 ### Workspaces
-- [Workspace Resource](./docs/resources/workspace.md)
-- [Workspace Data Source](./docs/data-sources/workspace.md)
+- [Workspace Resource](./docs/resources/workspace.md) - Conceptual only
+- [Workspace Data Source](./docs/data-sources/workspace.md) - Conceptual only
 
 ### Teams
-- [Team Resource](./docs/resources/team.md)
-- [Team Data Source](./docs/data-sources/team.md)
+- [Team Resource](./docs/resources/team.md) - Conceptual only
+- [Team Data Source](./docs/data-sources/team.md) - Conceptual only
 
 ### Projects
-- [Project Resource](./docs/resources/project.md)
-- [Project Data Source](./docs/data-sources/project.md)
+- [Project Resource](./docs/resources/project.md) - Conceptual only
+- [Project Data Source](./docs/data-sources/project.md) - Conceptual only
 
 ### Role Assignments
-- [Workspace Role Assignment Resource](./docs/resources/workspace_role_assignment.md)
-- [Project Role Assignment Resource](./docs/resources/project_role_assignment.md)
-- [Stack Role Assignment Resource](./docs/resources/stack_role_assignment.md)
+- [Workspace Role Assignment Resource](./docs/resources/workspace_role_assignment.md) - Conceptual only
+- [Project Role Assignment Resource](./docs/resources/project_role_assignment.md) - Conceptual only
+- [Stack Role Assignment Resource](./docs/resources/stack_role_assignment.md) - Conceptual only
 
 ## Development
 
