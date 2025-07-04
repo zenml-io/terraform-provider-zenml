@@ -4,15 +4,25 @@
 [![Release](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml/badge.svg)](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml)
 
 This Terraform provider allows you to manage ZenML resources using Infrastructure as Code. It provides the ability to manage:
+
+## ZenML OSS Resources
 - ZenML Stacks
 - Stack Components
 - Service Connectors
+
+## ZenML Pro Resources
+- Workspaces (via Control Plane API)
+- Teams and Team Management
+- Projects within Workspaces
+- Role Assignments (workspace, project, and stack-level)
+- Multi-workspace orchestration
 
 ## Requirements
 
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0
 - [Go](https://golang.org/doc/install) >= 1.20
 - [ZenML Server](https://docs.zenml.io/) >= 0.70.0
+- For Pro features: ZenML Pro subscription with Control Plane access
 
 ## Building The Provider
 
@@ -44,7 +54,11 @@ terraform {
 
 ### Authentication
 
-Configure the provider with your ZenML server URL and API key or API token.
+The provider supports multiple authentication methods depending on whether you're using ZenML OSS or Pro features:
+
+#### ZenML OSS Authentication (Workspace-only)
+
+For basic ZenML OSS usage, configure with your ZenML server URL and API key:
 
 ```hcl
 provider "zenml" {
@@ -53,98 +67,109 @@ provider "zenml" {
 }
 ```
 
-For OSS users, the `server_url` is basically the root URL of your ZenML server deployment.
-For Pro users, the `server_url` is the the URL of your workspace, which can be found
-in your dashboard:
+#### ZenML Pro Authentication (Control Plane + Workspace)
 
-![ZenML workspace URL](assets/workspace_url.png)
+**✅ UPDATED**: The Pro authentication implementation has been updated to match the real ZenML Cloud API structure. It now uses OAuth2 with Auth0 for authentication.
 
-It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io`.
-
-You have two options to provide a token or key:
-
-#### Option 1: Using `ZENML_API_KEY`
-
-You can input the `ZENML_API_KEY` as follows: 
+For ZenML Pro features, configure with OAuth2 credentials:
 
 ```hcl
 provider "zenml" {
-  server_url = "https://your-zenml-server.com"
-  api_key    = "your-api-key"
+  # Control Plane Configuration (for workspaces, teams, projects)
+  control_plane_url = "https://cloudapi.zenml.io"
+  client_id         = "your-oauth2-client-id"
+  client_secret     = "your-oauth2-client-secret"
+  
+  # Workspace Configuration (for stacks, components, connectors)
+  server_url = "https://your-workspace-url.zenml.io"
+  api_key    = "your-workspace-api-key"
 }
 ```
 
-You can also use environment variables:
+#### Environment Variables
+
+You can also use environment variables for authentication:
 
 ```bash
-export ZENML_SERVER_URL="https://your-zenml-server.com"
-export ZENML_API_KEY="your-api-key"
+# For Control Plane (Pro features)
+export ZENML_CONTROL_PLANE_URL="https://cloudapi.zenml.io"
+export ZENML_CLIENT_ID="your-oauth2-client-id"
+export ZENML_CLIENT_SECRET="your-oauth2-client-secret"
+
+# For Workspace (OSS + Pro features)
+export ZENML_SERVER_URL="https://your-workspace-url.zenml.io"
+export ZENML_API_KEY="your-workspace-api-key"
 ```
 
-To generate a `ZENML_API_KEY`, follow these steps:
+### Authentication Flow
 
-1. Install ZenML:
+**⚠️ CURRENT LIMITATION**: The Pro authentication flow described below is conceptual and does not match the real ZenML Cloud API, which uses OAuth2 with Auth0.
+
+The provider was designed to automatically choose the appropriate authentication method:
+
+1. **Control Plane requests** (workspaces, teams, projects, role assignments) use `service_account_key`
+2. **Workspace requests** (stacks, components, connectors) use `api_key` or `api_token`
+3. **Mixed scenarios** use both authentication methods as needed
+
+### Getting Your Credentials
+
+#### Service Account Key (Pro) - NOT FUNCTIONAL
+
+The real ZenML Cloud API uses OAuth2 authentication via Auth0, not service account keys. To implement proper authentication, you would need to:
+
+1. Register an OAuth2 application with Auth0
+2. Implement the OAuth2 client credentials flow
+3. Use the access token for API requests
+
+#### Workspace API Key
+
+1. Install ZenML CLI:
 ```bash
 pip install zenml
 ```
 
 2. Login to your ZenML server:
 ```bash
-zenml login --url <API_URL>
+zenml login --url <WORKSPACE_URL>
 ```
 
-3. Create a service account and get the API key:
+3. Create a service account:
 ```bash
-zenml service-account create <MYSERVICEACCOUNTNAME>
+zenml service-account create <SERVICE_ACCOUNT_NAME>
 ```
 
-This command will print out the `ZENML_API_KEY` that you can use with this provider.
+### Provider Configuration Options
 
-#### Option 2: Using `ZENML_API_TOKEN`
+**⚠️ IMPORTANT**: The Pro configuration options below are conceptual and not functional against the real API:
 
-Alternatively, you can use an API token for authentication:
+```hcl
+provider "zenml" {
+  # Control Plane (intended for Pro features) - NOT FUNCTIONAL
+  control_plane_url   = "https://zenml.cloud"           # Real API uses OAuth2
+  service_account_key = "your-service-account-key"      # Real API uses OAuth2 tokens
+  
+  # Workspace (functional for OSS features)
+  server_url = "https://workspace.zenml.io"             # Required for OSS
+  api_key    = "your-api-key"                           # Alternative: api_token
+  api_token  = "your-api-token"                         # Alternative: api_key
+}
+```
+
+### Important Notice
+
+The Pro features implementation in this provider is **conceptual only** and does not work with the real ZenML Cloud API. See [AUTHENTICATION_ANALYSIS.md](./AUTHENTICATION_ANALYSIS.md) for details on the differences between this implementation and the real API.
+
+### Example Usage
+
+#### Basic OSS Usage
 
 ```hcl
 provider "zenml" {
   server_url = "https://your-zenml-server.com"
-  api_token  = "your-api-token"
-}
-```
-
-You can also use environment variables:
-```bash
-export ZENML_SERVER_URL="https://your-zenml-server.com"
-export ZENML_API_TOKEN="your-api-token"
-```
-
-### Example Usage
-
-> **Hint:** The ZenML Terraform provider is being heavily used in all our Terraform modules. Their code is available on GitHub and can be used as a reference:
-> - [zenml-stack/aws](https://github.com/zenml-io/terraform-aws-zenml-stack)
-> - [zenml-stack/gcp](https://github.com/zenml-io/terraform-gcp-zenml-stack)
-> - [zenml-stack/azure](https://github.com/zenml-io/terraform-azure-zenml-stack)
-
-Here's a basic example of creating a stack with components:
-
-```hcl
-# Create a service connector for GCP
-resource "zenml_service_connector" "gcp" {
-  name        = "gcp-connector"
-  type        = "gcp"
-  auth_method = "service-account"
-  
-  configuration = {
-    project_id = "my-project"
-    location   = "us-central1"
-    service_account_json = file("service-account.json")
-  }
-  
-  labels = {
-    environment = "production"
-  }
+  api_key    = "your-api-key"
 }
 
-# Create an artifact store component
+# Create a stack with components
 resource "zenml_stack_component" "artifact_store" {
   name   = "gcs-store"
   type   = "artifact_store"
@@ -153,29 +178,110 @@ resource "zenml_stack_component" "artifact_store" {
   configuration = {
     path = "gs://my-bucket/artifacts"
   }
-  
-  connector_id = zenml_service_connector.gcp.id
-  
-  labels = {
-    environment = "production"
-  }
 }
 
-# Create a stack using the components
 resource "zenml_stack" "ml_stack" {
   name = "production-stack"
   
   components = {
     artifact_store = zenml_stack_component.artifact_store.id
   }
-  
-  labels = {
-    environment = "production"
-  }
 }
 ```
 
-See the [examples](./examples/) directory for more complete examples.
+#### Pro Usage with Multi-Workspace Management
+
+**⚠️ IMPORTANT**: The following Pro configuration is **CONCEPTUAL ONLY** and does not work with the real ZenML Cloud API. See [AUTHENTICATION_ANALYSIS.md](./AUTHENTICATION_ANALYSIS.md) for details.
+
+```hcl
+provider "zenml" {
+  control_plane_url   = "https://zenml.cloud"      # NOT FUNCTIONAL - Real API uses OAuth2
+  service_account_key = var.service_account_key    # NOT FUNCTIONAL - Real API uses OAuth2
+}
+
+# Create a workspace - CONCEPTUAL ONLY
+resource "zenml_workspace" "team_alpha" {
+  name        = "team-alpha-workspace"
+  description = "Workspace for Team Alpha ML projects"
+  
+  tags = {
+    team        = "alpha"
+    environment = "production"
+    cost-center = "ml-research"
+  }
+}
+
+# Create teams - CONCEPTUAL ONLY
+resource "zenml_team" "developers" {
+  name        = "alpha-developers"
+  description = "Team Alpha developers"
+  
+  members = [
+    "alice@company.com",
+    "bob@company.com"
+  ]
+}
+
+resource "zenml_team" "ml_engineers" {
+  name        = "alpha-ml-engineers"
+  description = "Team Alpha ML engineers"
+  
+  members = [
+    "charlie@company.com",
+    "diana@company.com"
+  ]
+}
+
+# Create a project within the workspace - CONCEPTUAL ONLY
+resource "zenml_project" "recommendation_engine" {
+  workspace_id = zenml_workspace.team_alpha.id
+  name         = "recommendation-engine"
+  description  = "Customer recommendation ML pipeline"
+  
+  tags = {
+    project-type = "ml-pipeline"
+    priority     = "high"
+  }
+}
+
+# Assign workspace-level roles - CONCEPTUAL ONLY
+resource "zenml_workspace_role_assignment" "dev_team_access" {
+  workspace_id = zenml_workspace.team_alpha.id
+  team_id      = zenml_team.developers.id
+  role         = "Editor"
+}
+
+resource "zenml_project_role_assignment" "ml_team_project_access" {
+  project_id = zenml_project.recommendation_engine.id
+  team_id    = zenml_team.ml_engineers.id
+  role       = "Admin"
+}
+```
+
+**Note**: The above resources (`zenml_workspace`, `zenml_team`, `zenml_project`, role assignments) are implemented but will not work against the real ZenML Cloud API due to authentication and API structure differences.
+
+See the [examples](./examples/) directory for more complete examples, including the [complete Pro example](./examples/complete-pro/).
+
+## New Pro Resources (Conceptual Only)
+
+**⚠️ IMPORTANT**: These Pro resources are implemented but are **NOT COMPATIBLE** with the real ZenML Cloud API. They serve as architectural examples only.
+
+### Workspaces
+- [Workspace Resource](./docs/resources/workspace.md) - Conceptual only
+- [Workspace Data Source](./docs/data-sources/workspace.md) - Conceptual only
+
+### Teams
+- [Team Resource](./docs/resources/team.md) - Conceptual only
+- [Team Data Source](./docs/data-sources/team.md) - Conceptual only
+
+### Projects
+- [Project Resource](./docs/resources/project.md) - Conceptual only
+- [Project Data Source](./docs/data-sources/project.md) - Conceptual only
+
+### Role Assignments
+- [Workspace Role Assignment Resource](./docs/resources/workspace_role_assignment.md) - Conceptual only
+- [Project Role Assignment Resource](./docs/resources/project_role_assignment.md) - Conceptual only
+- [Stack Role Assignment Resource](./docs/resources/stack_role_assignment.md) - Conceptual only
 
 ## Development
 
