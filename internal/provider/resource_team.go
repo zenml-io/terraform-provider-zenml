@@ -18,11 +18,11 @@ func resourceTeam() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"control_plane_id": {
+			"organization_id": {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				Description: "ID of the control plane",
+				Description: "ID of the organization",
 			},
 			"name": {
 				Type:        schema.TypeString,
@@ -37,10 +37,15 @@ func resourceTeam() *schema.Resource {
 			"members": {
 				Type:        schema.TypeSet,
 				Optional:    true,
-				Description: "Email addresses of team members",
+				Description: "Email addresses or user IDs of team members",
 				Elem: &schema.Schema{
 					Type: schema.TypeString,
 				},
+			},
+			"member_count": {
+				Type:        schema.TypeInt,
+				Computed:    true,
+				Description: "Number of team members",
 			},
 			"created": {
 				Type:        schema.TypeString,
@@ -59,7 +64,7 @@ func resourceTeam() *schema.Resource {
 func resourceTeamCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*Client)
 
-	controlPlaneID := d.Get("control_plane_id").(string)
+	organizationID := d.Get("organization_id").(string)
 	name := d.Get("name").(string)
 	description := d.Get("description").(string)
 	members := []string{}
@@ -68,10 +73,9 @@ func resourceTeamCreate(ctx context.Context, d *schema.ResourceData, meta interf
 	}
 
 	req := TeamRequest{
-		ControlPlaneID: controlPlaneID,
+		OrganizationID: organizationID,
 		Name:           name,
 		Description:    &description,
-		Members:        members,
 	}
 
 	team, err := client.CreateTeam(ctx, req)
@@ -80,6 +84,14 @@ func resourceTeamCreate(ctx context.Context, d *schema.ResourceData, meta interf
 	}
 
 	d.SetId(team.ID)
+
+	// Add members to the team (separate API calls in the real API)
+	for _, memberID := range members {
+		err := client.AddTeamMember(ctx, team.ID, memberID)
+		if err != nil {
+			return diag.Errorf("failed to add member %s to team: %v", memberID, err)
+		}
+	}
 
 	return resourceTeamRead(ctx, d, meta)
 }
@@ -98,20 +110,24 @@ func resourceTeamRead(ctx context.Context, d *schema.ResourceData, meta interfac
 	}
 
 	d.Set("name", team.Name)
+	d.Set("description", team.Description)
+	d.Set("member_count", team.MemberCount)
+	d.Set("created", team.Created)
+	d.Set("updated", team.Updated)
 
-	if team.Body != nil {
-		d.Set("description", team.Body.Description)
-		d.Set("control_plane_id", team.Body.ControlPlaneID)
-		d.Set("created", team.Body.Created)
-		d.Set("updated", team.Body.Updated)
-	}
-
-	if team.Metadata != nil && team.Metadata.Members != nil {
-		memberEmails := make([]string, len(team.Metadata.Members))
-		for i, member := range team.Metadata.Members {
-			memberEmails[i] = member.Email
+	// Get team members (separate API call in the real API)
+	members, err := client.ListTeamMembers(ctx, team.ID)
+	if err != nil {
+		// Don't fail if we can't get members, just log and continue
+		// In a real implementation, you might want to handle this differently
+	} else {
+		memberIDs := make([]string, len(members))
+		for i, member := range members {
+			if member.User != nil {
+				memberIDs[i] = member.User.ID
+			}
 		}
-		d.Set("members", memberEmails)
+		d.Set("members", memberIDs)
 	}
 
 	return nil
@@ -120,29 +136,65 @@ func resourceTeamRead(ctx context.Context, d *schema.ResourceData, meta interfac
 func resourceTeamUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*Client)
 
-	var req TeamUpdate
+	// Update team basic info
+	if d.HasChange("name") || d.HasChange("description") {
+		var req TeamUpdate
 
-	if d.HasChange("name") {
-		name := d.Get("name").(string)
-		req.Name = &name
-	}
-
-	if d.HasChange("description") {
-		description := d.Get("description").(string)
-		req.Description = &description
-	}
-
-	if d.HasChange("members") {
-		members := []string{}
-		if v, ok := d.GetOk("members"); ok {
-			members = convertSetToStringSlice(v.(*schema.Set))
+		if d.HasChange("name") {
+			name := d.Get("name").(string)
+			req.Name = &name
 		}
-		req.Members = members
+
+		if d.HasChange("description") {
+			description := d.Get("description").(string)
+			req.Description = &description
+		}
+
+		_, err := client.UpdateTeam(ctx, d.Id(), req)
+		if err != nil {
+			return diag.FromErr(err)
+		}
 	}
 
-	_, err := client.UpdateTeam(ctx, d.Id(), req)
-	if err != nil {
-		return diag.FromErr(err)
+	// Handle member changes (separate API calls in the real API)
+	if d.HasChange("members") {
+		old, new := d.GetChange("members")
+		oldMembers := convertSetToStringSlice(old.(*schema.Set))
+		newMembers := convertSetToStringSlice(new.(*schema.Set))
+
+		// Find members to remove
+		for _, oldMember := range oldMembers {
+			found := false
+			for _, newMember := range newMembers {
+				if oldMember == newMember {
+					found = true
+					break
+				}
+			}
+			if !found {
+				err := client.RemoveTeamMember(ctx, d.Id(), oldMember)
+				if err != nil {
+					return diag.Errorf("failed to remove member %s from team: %v", oldMember, err)
+				}
+			}
+		}
+
+		// Find members to add
+		for _, newMember := range newMembers {
+			found := false
+			for _, oldMember := range oldMembers {
+				if newMember == oldMember {
+					found = true
+					break
+				}
+			}
+			if !found {
+				err := client.AddTeamMember(ctx, d.Id(), newMember)
+				if err != nil {
+					return diag.Errorf("failed to add member %s to team: %v", newMember, err)
+				}
+			}
+		}
 	}
 
 	return resourceTeamRead(ctx, d, meta)

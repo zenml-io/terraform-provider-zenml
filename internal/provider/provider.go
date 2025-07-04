@@ -21,7 +21,7 @@ func Provider() *schema.Provider {
 			"control_plane_url": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("ZENML_CONTROL_PLANE_URL", nil),
+				DefaultFunc: schema.EnvDefaultFunc("ZENML_CONTROL_PLANE_URL", "https://cloudapi.zenml.io"),
 				Description: "The URL of the ZenML control plane. Required for Pro features.",
 			},
 			"api_key": {
@@ -38,12 +38,18 @@ func Provider() *schema.Provider {
 				DefaultFunc: schema.EnvDefaultFunc("ZENML_API_TOKEN", nil),
 				Description: "API token for authentication. Expires after a short period.",
 			},
-			"service_account_key": {
+			"client_id": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("ZENML_CLIENT_ID", nil),
+				Description: "OAuth2 client ID for ZenML Pro authentication.",
+			},
+			"client_secret": {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Sensitive:   true,
-				DefaultFunc: schema.EnvDefaultFunc("ZENML_SERVICE_ACCOUNT_KEY", nil),
-				Description: "Service account key for control plane authentication.",
+				DefaultFunc: schema.EnvDefaultFunc("ZENML_CLIENT_SECRET", nil),
+				Description: "OAuth2 client secret for ZenML Pro authentication.",
 			},
 			"skip_version_check": {
 				Type:        schema.TypeBool,
@@ -83,7 +89,8 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	controlPlaneURL := d.Get("control_plane_url").(string)
 	apiKey := d.Get("api_key").(string)
 	apiToken := d.Get("api_token").(string)
-	serviceAccountKey := d.Get("service_account_key").(string)
+	clientID := d.Get("client_id").(string)
+	clientSecret := d.Get("client_secret").(string)
 	skipVersionCheck := d.Get("skip_version_check").(bool)
 
 	// Validate configuration
@@ -91,16 +98,14 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 		return nil, diag.Errorf("either server_url or control_plane_url must be configured")
 	}
 
-	if apiKey == "" && apiToken == "" && serviceAccountKey == "" {
+	if apiKey == "" && apiToken == "" && (clientID == "" || clientSecret == "") {
 		return nil, diag.Diagnostics{
 			diag.Diagnostic{
 				Severity: diag.Error,
 				Summary:  "Authentication must be configured for the ZenML Terraform provider",
 				Detail: `
-An API key, API token, or service account key must be provided for authentication.
-
 For workspace operations, use api_key or api_token.
-For control plane operations (Pro features), use service_account_key.
+For control plane operations (Pro features), use client_id and client_secret.
 
 More information on authentication can be found at https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account.
 
@@ -108,14 +113,15 @@ Example configuration:
 
 provider "zenml" {
   control_plane_url = "https://cloudapi.zenml.io"
-  service_account_key = "your service account key"
+  client_id = "your oauth2 client id"
+  client_secret = "your oauth2 client secret"
 }
 `,
 			},
 		}
 	}
 
-	client := NewClient(serverURL, controlPlaneURL, apiKey, apiToken, serviceAccountKey)
+	client := NewClient(serverURL, controlPlaneURL, apiKey, apiToken, clientID, clientSecret)
 	if client == nil {
 		return nil, diag.Errorf("failed to create client")
 	}

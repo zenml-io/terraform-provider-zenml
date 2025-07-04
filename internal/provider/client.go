@@ -24,19 +24,23 @@ type Client struct {
 	ControlPlaneURL   string
 	APIKey            string
 	APIToken          string
-	ServiceAccountKey string
+	ClientID          string
+	ClientSecret      string
+	AccessToken       string
+	AccessTokenExpires *time.Time
 	APITokenExpires   *time.Time
 	HTTPClient        *http.Client
 	workspaceURLs     map[string]string // Cache for workspace URLs
 }
 
-func NewClient(serverURL, controlPlaneURL, apiKey, apiToken, serviceAccountKey string) *Client {
+func NewClient(serverURL, controlPlaneURL, apiKey, apiToken, clientID, clientSecret string) *Client {
 	return &Client{
 		ServerURL:         serverURL,
 		ControlPlaneURL:   controlPlaneURL,
 		APIKey:            apiKey,
 		APIToken:          apiToken,
-		ServiceAccountKey: serviceAccountKey,
+		ClientID:          clientID,
+		ClientSecret:      clientSecret,
 		APITokenExpires:   nil,
 		HTTPClient:        &http.Client{},
 		workspaceURLs:     make(map[string]string),
@@ -115,14 +119,65 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	return c.APIToken, nil
 }
 
-func (c *Client) getServiceAccountToken(ctx context.Context) (string, error) {
-	if c.ServiceAccountKey == "" {
-		return "", fmt.Errorf("service account key is required for control plane operations")
+func (c *Client) getOAuth2Token(ctx context.Context) (string, error) {
+	if c.ClientID == "" || c.ClientSecret == "" {
+		return "", fmt.Errorf("OAuth2 client ID and secret are required for control plane operations")
 	}
 
-	// Use service account key directly as bearer token for now
-	// This will need to be updated based on the actual ZenML Pro API authentication flow
-	return c.ServiceAccountKey, nil
+	// Check if we have a valid access token
+	if c.AccessToken != "" && c.AccessTokenExpires != nil {
+		if time.Now().Before(*c.AccessTokenExpires) {
+			return c.AccessToken, nil
+		}
+	}
+
+	// Get new access token via OAuth2 client credentials flow
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("client_id", c.ClientID)
+	data.Set("client_secret", c.ClientSecret)
+	data.Set("audience", "https://cloudapi.zenml.io")
+
+	tokenReq, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		"https://zenmlcloud.eu.auth0.com/oauth/token",
+		bytes.NewBufferString(data.Encode()),
+	)
+	if err != nil {
+		return "", fmt.Errorf("error creating OAuth2 token request: %v", err)
+	}
+	
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	
+	tokenResp, err := c.HTTPClient.Do(tokenReq)
+	if err != nil {
+		return "", fmt.Errorf("error making OAuth2 token request: %v", err)
+	}
+	defer tokenResp.Body.Close()
+
+	if tokenResp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(tokenResp.Body)
+		return "", fmt.Errorf("OAuth2 token request failed with status %d: %s", tokenResp.StatusCode, string(bodyBytes))
+	}
+
+	var tokenData struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
+	}
+	
+	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenData); err != nil {
+		return "", fmt.Errorf("error decoding OAuth2 token response: %v", err)
+	}
+
+	c.AccessToken = tokenData.AccessToken
+	// Set expiry time to 5 minutes before actual expiry to handle clock skew
+	expiresAt := time.Now().Add(time.Duration(tokenData.ExpiresIn-300) * time.Second)
+	c.AccessTokenExpires = &expiresAt
+
+	return c.AccessToken, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
@@ -142,7 +197,12 @@ func (c *Client) doWorkspaceRequest(ctx context.Context, workspaceID, method, pa
 		if err != nil {
 			return nil, 0, fmt.Errorf("error retrieving workspace URL: %v", err)
 		}
-		workspaceURL = workspace.URL
+		// In the real API, workspace URL needs to be constructed from ZenML service
+		if workspace.ZenMLService.Status != nil && workspace.ZenMLService.Status.ServerURL != nil {
+			workspaceURL = *workspace.ZenMLService.Status.ServerURL
+		} else {
+			return nil, 0, fmt.Errorf("workspace does not have a valid server URL")
+		}
 		c.workspaceURLs[workspaceID] = workspaceURL
 	}
 
@@ -167,7 +227,7 @@ func (c *Client) doRequestWithBaseURL(ctx context.Context, method, path string, 
 
 	var accessToken string
 	if baseURL == c.ControlPlaneURL {
-		accessToken, err = c.getServiceAccountToken(ctx)
+		accessToken, err = c.getOAuth2Token(ctx)
 	} else {
 		accessToken, err = c.getAPIToken(ctx)
 	}
@@ -221,7 +281,7 @@ func (c *Client) doRequestWithBaseURL(ctx context.Context, method, path string, 
 
 // GetControlPlaneInfo fetches control plane info
 func (c *Client) GetControlPlaneInfo(ctx context.Context) (*ControlPlaneInfo, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "GET", "/api/v1/info", nil)
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", "/server/info", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +676,7 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*UserResponse, error) {
 
 // Workspace operations
 func (c *Client) CreateWorkspace(ctx context.Context, workspace WorkspaceRequest) (*WorkspaceResponse, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/api/v1/workspaces", workspace)
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/workspaces", workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +690,7 @@ func (c *Client) CreateWorkspace(ctx context.Context, workspace WorkspaceRequest
 }
 
 func (c *Client) GetWorkspace(ctx context.Context, id string) (*WorkspaceResponse, error) {
-	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/workspaces/%s", id), nil)
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/workspaces/%s", id), nil)
 	if err != nil {
 		if status == 404 {
 			return nil, nil
@@ -647,7 +707,7 @@ func (c *Client) GetWorkspace(ctx context.Context, id string) (*WorkspaceRespons
 }
 
 func (c *Client) UpdateWorkspace(ctx context.Context, id string, workspace WorkspaceUpdate) (*WorkspaceResponse, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/workspaces/%s", id), workspace)
+	resp, _, err := c.doControlPlaneRequest(ctx, "PATCH", fmt.Sprintf("/workspaces/%s", id), workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +721,7 @@ func (c *Client) UpdateWorkspace(ctx context.Context, id string, workspace Works
 }
 
 func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
-	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/workspaces/%s", id), nil)
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/workspaces/%s", id), nil)
 	if err != nil {
 		if status == 404 {
 			return nil
@@ -694,7 +754,7 @@ func (c *Client) ListWorkspaces(ctx context.Context, params *ListParams) (*Page[
 		query.Add(k, v)
 	}
 
-	path := fmt.Sprintf("/api/v1/workspaces?%s", query.Encode())
+	path := fmt.Sprintf("/workspaces?%s", query.Encode())
 	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -710,7 +770,7 @@ func (c *Client) ListWorkspaces(ctx context.Context, params *ListParams) (*Page[
 
 // Team operations
 func (c *Client) CreateTeam(ctx context.Context, team TeamRequest) (*TeamResponse, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/api/v1/teams", team)
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/teams", team)
 	if err != nil {
 		return nil, err
 	}
@@ -724,7 +784,7 @@ func (c *Client) CreateTeam(ctx context.Context, team TeamRequest) (*TeamRespons
 }
 
 func (c *Client) GetTeam(ctx context.Context, id string) (*TeamResponse, error) {
-	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/teams/%s", id), nil)
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/teams/%s", id), nil)
 	if err != nil {
 		if status == 404 {
 			return nil, nil
@@ -741,7 +801,7 @@ func (c *Client) GetTeam(ctx context.Context, id string) (*TeamResponse, error) 
 }
 
 func (c *Client) UpdateTeam(ctx context.Context, id string, team TeamUpdate) (*TeamResponse, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/teams/%s", id), team)
+	resp, _, err := c.doControlPlaneRequest(ctx, "PATCH", fmt.Sprintf("/teams/%s", id), team)
 	if err != nil {
 		return nil, err
 	}
@@ -755,7 +815,7 @@ func (c *Client) UpdateTeam(ctx context.Context, id string, team TeamUpdate) (*T
 }
 
 func (c *Client) DeleteTeam(ctx context.Context, id string) error {
-	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/teams/%s", id), nil)
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/teams/%s", id), nil)
 	if err != nil {
 		if status == 404 {
 			return nil
@@ -788,7 +848,7 @@ func (c *Client) ListTeams(ctx context.Context, params *ListParams) (*Page[TeamR
 		query.Add(k, v)
 	}
 
-	path := fmt.Sprintf("/api/v1/teams?%s", query.Encode())
+	path := fmt.Sprintf("/teams?%s", query.Encode())
 	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -800,6 +860,42 @@ func (c *Client) ListTeams(ctx context.Context, params *ListParams) (*Page[TeamR
 		return nil, fmt.Errorf("error decoding teams response: %v", err)
 	}
 	return &result, nil
+}
+
+// Team member operations
+func (c *Client) AddTeamMember(ctx context.Context, teamID, userID string) error {
+	body := map[string]string{"user_id": userID}
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", fmt.Sprintf("/teams/%s/members", teamID), body)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) RemoveTeamMember(ctx context.Context, teamID, userID string) error {
+	// For DELETE with body, we need to structure the request properly
+	body := map[string]string{"user_id": userID}
+	resp, _, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/teams/%s/members", teamID), body)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListTeamMembers(ctx context.Context, teamID string) ([]TeamMemberResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/teams/%s/members", teamID), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result []TeamMemberResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding team members response: %v", err)
+	}
+	return result, nil
 }
 
 // Project operations
@@ -898,23 +994,9 @@ func (c *Client) ListProjects(ctx context.Context, workspaceID string, params *L
 
 // Role assignment operations
 func (c *Client) CreateRoleAssignment(ctx context.Context, assignment RoleAssignmentRequest) (*RoleAssignmentResponse, error) {
-	var endpoint string
-	var resp *http.Response
-	var err error
-
-	switch assignment.ResourceType {
-	case "workspace":
-		endpoint = "/api/v1/role-assignments"
-		resp, _, err = c.doControlPlaneRequest(ctx, "POST", endpoint, assignment)
-	case "project", "stack":
-		// For workspace-level resources, we need to determine the workspace ID
-		// This is a simplified implementation - in practice, you'd need to resolve the workspace ID
-		endpoint = "/api/v1/role-assignments"
-		resp, _, err = c.doRequest(ctx, "POST", endpoint, assignment)
-	default:
-		return nil, fmt.Errorf("unsupported resource type: %s", assignment.ResourceType)
-	}
-
+	// Real API uses /roles/{role_id}/assignments endpoint
+	endpoint := fmt.Sprintf("/roles/%s/assignments", assignment.RoleID)
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", endpoint, assignment)
 	if err != nil {
 		return nil, err
 	}
@@ -927,8 +1009,8 @@ func (c *Client) CreateRoleAssignment(ctx context.Context, assignment RoleAssign
 	return &result, nil
 }
 
-func (c *Client) GetRoleAssignment(ctx context.Context, id string) (*RoleAssignmentResponse, error) {
-	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/role-assignments/%s", id), nil)
+func (c *Client) GetRoleAssignment(ctx context.Context, roleID, assignmentID string) (*RoleAssignmentResponse, error) {
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/roles/%s/assignments/%s", roleID, assignmentID), nil)
 	if err != nil {
 		if status == 404 {
 			return nil, nil
@@ -944,8 +1026,8 @@ func (c *Client) GetRoleAssignment(ctx context.Context, id string) (*RoleAssignm
 	return &result, nil
 }
 
-func (c *Client) UpdateRoleAssignment(ctx context.Context, id string, assignment RoleAssignmentUpdate) (*RoleAssignmentResponse, error) {
-	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/role-assignments/%s", id), assignment)
+func (c *Client) UpdateRoleAssignment(ctx context.Context, roleID, assignmentID string, assignment RoleAssignmentUpdate) (*RoleAssignmentResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "PATCH", fmt.Sprintf("/roles/%s/assignments/%s", roleID, assignmentID), assignment)
 	if err != nil {
 		return nil, err
 	}
@@ -958,8 +1040,8 @@ func (c *Client) UpdateRoleAssignment(ctx context.Context, id string, assignment
 	return &result, nil
 }
 
-func (c *Client) DeleteRoleAssignment(ctx context.Context, id string) error {
-	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/role-assignments/%s", id), nil)
+func (c *Client) DeleteRoleAssignment(ctx context.Context, roleID, assignmentID string) error {
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/roles/%s/assignments/%s", roleID, assignmentID), nil)
 	if err != nil {
 		if status == 404 {
 			return nil
@@ -970,7 +1052,7 @@ func (c *Client) DeleteRoleAssignment(ctx context.Context, id string) error {
 	return nil
 }
 
-func (c *Client) ListRoleAssignments(ctx context.Context, params *ListParams) (*Page[RoleAssignmentResponse], error) {
+func (c *Client) ListRoleAssignments(ctx context.Context, roleID string, params *ListParams) (*Page[RoleAssignmentResponse], error) {
 	if params == nil {
 		params = &ListParams{
 			Page:     1,
@@ -992,7 +1074,7 @@ func (c *Client) ListRoleAssignments(ctx context.Context, params *ListParams) (*
 		query.Add(k, v)
 	}
 
-	path := fmt.Sprintf("/api/v1/role-assignments?%s", query.Encode())
+	path := fmt.Sprintf("/roles/%s/assignments?%s", roleID, query.Encode())
 	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err

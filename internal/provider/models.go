@@ -53,75 +53,121 @@ type ServerInfo struct {
 
 // Workspace models
 type WorkspaceRequest struct {
-	Name        string            `json:"name"`
-	Description *string           `json:"description,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	ID             *string `json:"id,omitempty"`
+	Name           *string `json:"name,omitempty"`
+	DisplayName    *string `json:"display_name,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	LogoURL        *string `json:"logo_url,omitempty"`
+	OwnerID        *string `json:"owner_id,omitempty"`
+	OrganizationID *string `json:"organization_id,omitempty"`
+	IsManaged      bool    `json:"is_managed"`
+	EnrollmentKey  *string `json:"enrollment_key,omitempty"`
 }
 
 type WorkspaceResponse struct {
-	ID          string                     `json:"id"`
-	Name        string                     `json:"name"`
-	Body        *WorkspaceResponseBody     `json:"body,omitempty"`
-	Metadata    *WorkspaceResponseMetadata `json:"metadata,omitempty"`
-	URL         string                     `json:"url"`
-	Status      string                     `json:"status"`
+	ID             string                  `json:"id"`
+	Name           string                  `json:"name"`
+	DisplayName    string                  `json:"display_name"`
+	Description    *string                 `json:"description,omitempty"`
+	LogoURL        *string                 `json:"logo_url,omitempty"`
+	Organization   OrganizationResponse    `json:"organization"`
+	Owner          UserResponse            `json:"owner"`
+	IsManaged      bool                    `json:"is_managed"`
+	EnrollmentKey  *string                 `json:"enrollment_key,omitempty"`
+	ZenMLService   ZenMLServiceResponse    `json:"zenml_service"`
+	MLflowService  *MLflowServiceResponse  `json:"mlflow_service,omitempty"`
+	UsageCounts    map[string]int          `json:"usage_counts"`
+	DesiredState   string                  `json:"desired_state"`
+	StateReason    string                  `json:"state_reason"`
+	Status         string                  `json:"status"`
+	Created        string                  `json:"created"`
+	Updated        string                  `json:"updated"`
+	StatusUpdated  *string                 `json:"status_updated,omitempty"`
 }
 
-type WorkspaceResponseBody struct {
-	Created     string `json:"created"`
-	Updated     string `json:"updated"`
-	Description string `json:"description"`
+type OrganizationResponse struct {
+	ID                    string  `json:"id"`
+	Name                  string  `json:"name"`
+	Description           *string `json:"description,omitempty"`
+	LogoURL              *string `json:"logo_url,omitempty"`
+	Created              string  `json:"created"`
+	Updated              string  `json:"updated"`
+	Owner                UserResponse `json:"owner"`
+	HasActiveSubscription *bool   `json:"has_active_subscription,omitempty"`
+	TrialExpiry          *int    `json:"trial_expiry,omitempty"`
 }
 
-type WorkspaceResponseMetadata struct {
-	Tags     []string          `json:"tags,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+type ZenMLServiceResponse struct {
+	Configuration *ZenMLServiceConfiguration `json:"configuration,omitempty"`
+	Status        *ZenMLServiceStatus         `json:"status,omitempty"`
+}
+
+type ZenMLServiceConfiguration struct {
+	Version          string `json:"version"`
+	AnalyticsEnabled bool   `json:"analytics_enabled"`
+}
+
+type ZenMLServiceStatus struct {
+	ServerURL    *string `json:"server_url,omitempty"`
+	Version      *string `json:"version,omitempty"`
+	StorageSize  *int    `json:"storage_size,omitempty"`
+}
+
+type MLflowServiceResponse struct {
+	Configuration MLflowServiceConfiguration `json:"configuration"`
+	Status        *MLflowServiceStatus        `json:"status,omitempty"`
+}
+
+type MLflowServiceConfiguration struct {
+	Version string `json:"version"`
+}
+
+type MLflowServiceStatus struct {
+	ServerURL string `json:"server_url"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
 }
 
 type WorkspaceUpdate struct {
-	Name        *string           `json:"name,omitempty"`
-	Description *string           `json:"description,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	OwnerID      *string `json:"owner_id,omitempty"`
+	DisplayName  *string `json:"display_name,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	LogoURL      *string `json:"logo_url,omitempty"`
+	DesiredState *string `json:"desired_state,omitempty"`
+	StateReason  *string `json:"state_reason,omitempty"`
 }
 
 // Team models
 type TeamRequest struct {
-	ControlPlaneID string   `json:"control_plane_id"`
-	Name           string   `json:"name"`
-	Description    *string  `json:"description,omitempty"`
-	Members        []string `json:"members,omitempty"`
+	Name           string  `json:"name"`
+	Description    *string `json:"description,omitempty"`
+	OrganizationID string  `json:"organization_id"`
 }
 
 type TeamResponse struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	Body        *TeamResponseBody     `json:"body,omitempty"`
-	Metadata    *TeamResponseMetadata `json:"metadata,omitempty"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Created     string  `json:"created"`
+	Updated     string  `json:"updated"`
+	MemberCount int     `json:"member_count"`
 }
 
-type TeamResponseBody struct {
-	Created         string `json:"created"`
-	Updated         string `json:"updated"`
-	Description     string `json:"description"`
-	ControlPlaneID  string `json:"control_plane_id"`
+type TeamMemberResponse struct {
+	User *UserResponse `json:"user,omitempty"`
+	Team *TeamResponse `json:"team,omitempty"`
+	Roles []MemberRoleAssignment `json:"roles"`
 }
 
-type TeamResponseMetadata struct {
-	Members []TeamMember `json:"members,omitempty"`
-}
-
-type TeamMember struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+type MemberRoleAssignment struct {
+	RoleID  string `json:"role_id"`
+	Level   string `json:"level"`
+	ViaTeam bool   `json:"via_team"`
 }
 
 type TeamUpdate struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Members     []string `json:"members,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // Project models
@@ -161,36 +207,37 @@ type ProjectUpdate struct {
 
 // Role assignment models
 type RoleAssignmentRequest struct {
-	ResourceID   string `json:"resource_id"`
-	ResourceType string `json:"resource_type"`
+	RoleID       string  `json:"role_id"`
 	UserID       *string `json:"user_id,omitempty"`
 	TeamID       *string `json:"team_id,omitempty"`
-	Role         string `json:"role"`
+	WorkspaceID  *string `json:"workspace_id,omitempty"`
+	ProjectID    *string `json:"project_id,omitempty"`
 }
 
 type RoleAssignmentResponse struct {
-	ID           string                       `json:"id"`
-	ResourceID   string                       `json:"resource_id"`
-	ResourceType string                       `json:"resource_type"`
-	Body         *RoleAssignmentResponseBody  `json:"body,omitempty"`
-	Metadata     *RoleAssignmentResponseMetadata `json:"metadata,omitempty"`
+	User           *UserResponse `json:"user,omitempty"`
+	Team           *TeamResponse `json:"team,omitempty"`
+	Role           RoleResponse  `json:"role"`
+	OrganizationID string        `json:"organization_id"`
+	WorkspaceID    *string       `json:"workspace_id,omitempty"`
+	ProjectID      *string       `json:"project_id,omitempty"`
 }
 
-type RoleAssignmentResponseBody struct {
-	Created string `json:"created"`
-	Updated string `json:"updated"`
-	UserID  *string `json:"user_id,omitempty"`
-	TeamID  *string `json:"team_id,omitempty"`
-	Role    string `json:"role"`
-}
-
-type RoleAssignmentResponseMetadata struct {
-	User *UserResponse `json:"user,omitempty"`
-	Team *TeamResponse `json:"team,omitempty"`
+type RoleResponse struct {
+	ID             string  `json:"id"`
+	Name           *string `json:"name,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	OrganizationID string  `json:"organization_id"`
+	Level          string  `json:"level"`
+	SystemManaged  bool    `json:"system_managed"`
+	Type           string  `json:"type"`
 }
 
 type RoleAssignmentUpdate struct {
-	Role string `json:"role"`
+	UserID      *string `json:"user_id,omitempty"`
+	TeamID      *string `json:"team_id,omitempty"`
+	WorkspaceID *string `json:"workspace_id,omitempty"`
+	ProjectID   *string `json:"project_id,omitempty"`
 }
 
 // StackRequest represents a request to create a new stack

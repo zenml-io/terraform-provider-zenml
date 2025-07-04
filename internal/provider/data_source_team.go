@@ -24,23 +24,15 @@ func dataSourceTeam() *schema.Resource {
 				Computed:    true,
 				Description: "The name of the team",
 			},
-			"control_plane_id": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "ID of the control plane",
-			},
 			"description": {
 				Type:        schema.TypeString,
 				Computed:    true,
 				Description: "Description of the team",
 			},
-			"members": {
-				Type:        schema.TypeSet,
+			"member_count": {
+				Type:        schema.TypeInt,
 				Computed:    true,
-				Description: "Email addresses of team members",
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+				Description: "Number of team members",
 			},
 			"created": {
 				Type:        schema.TypeString,
@@ -100,21 +92,10 @@ func dataSourceTeamRead(ctx context.Context, d *schema.ResourceData, meta interf
 
 	d.SetId(team.ID)
 	d.Set("name", team.Name)
-
-	if team.Body != nil {
-		d.Set("description", team.Body.Description)
-		d.Set("control_plane_id", team.Body.ControlPlaneID)
-		d.Set("created", team.Body.Created)
-		d.Set("updated", team.Body.Updated)
-	}
-
-	if team.Metadata != nil && team.Metadata.Members != nil {
-		memberEmails := make([]string, len(team.Metadata.Members))
-		for i, member := range team.Metadata.Members {
-			memberEmails[i] = member.Email
-		}
-		d.Set("members", memberEmails)
-	}
+	d.Set("description", team.Description)
+	d.Set("member_count", team.MemberCount)
+	d.Set("created", team.Created)
+	d.Set("updated", team.Updated)
 
 	return nil
 }

@@ -24,31 +24,37 @@ func resourceWorkspace() *schema.Resource {
 				Required:    true,
 				Description: "Name of the workspace",
 			},
+			"display_name": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Display name of the workspace",
+			},
 			"description": {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Description: "Description of the workspace",
 			},
-			"tags": {
-				Type:        schema.TypeSet,
+			"logo_url": {
+				Type:        schema.TypeString,
 				Optional:    true,
-				Description: "Tags for the workspace",
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+				Description: "Logo URL of the workspace",
 			},
-			"metadata": {
-				Type:        schema.TypeMap,
+			"organization_id": {
+				Type:        schema.TypeString,
 				Optional:    true,
-				Description: "Metadata for the workspace",
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+				ForceNew:    true,
+				Description: "ID of the organization (optional)",
 			},
-			"url": {
+			"is_managed": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     true,
+				Description: "Whether the workspace is managed by ZenML Pro",
+			},
+			"server_url": {
 				Type:        schema.TypeString,
 				Computed:    true,
-				Description: "URL of the workspace",
+				Description: "Server URL of the workspace",
 			},
 			"status": {
 				Type:        schema.TypeString,
@@ -73,21 +79,26 @@ func resourceWorkspaceCreate(ctx context.Context, d *schema.ResourceData, meta i
 	client := meta.(*Client)
 
 	name := d.Get("name").(string)
+	displayName := d.Get("display_name").(string)
 	description := d.Get("description").(string)
-	tags := []string{}
-	if v, ok := d.GetOk("tags"); ok {
-		tags = convertSetToStringSlice(v.(*schema.Set))
-	}
-	metadata := map[string]string{}
-	if v, ok := d.GetOk("metadata"); ok {
-		metadata = convertMapToStringMap(v.(map[string]interface{}))
-	}
+	logoURL := d.Get("logo_url").(string)
+	organizationID := d.Get("organization_id").(string)
+	isManaged := d.Get("is_managed").(bool)
 
 	req := WorkspaceRequest{
-		Name:        name,
-		Description: &description,
-		Tags:        tags,
-		Metadata:    metadata,
+		Name:        &name,
+		DisplayName: &displayName,
+		IsManaged:   isManaged,
+	}
+
+	if description != "" {
+		req.Description = &description
+	}
+	if logoURL != "" {
+		req.LogoURL = &logoURL
+	}
+	if organizationID != "" {
+		req.OrganizationID = &organizationID
 	}
 
 	workspace, err := client.CreateWorkspace(ctx, req)
@@ -114,18 +125,17 @@ func resourceWorkspaceRead(ctx context.Context, d *schema.ResourceData, meta int
 	}
 
 	d.Set("name", workspace.Name)
-	d.Set("url", workspace.URL)
+	d.Set("display_name", workspace.DisplayName)
+	d.Set("description", workspace.Description)
+	d.Set("logo_url", workspace.LogoURL)
+	d.Set("is_managed", workspace.IsManaged)
 	d.Set("status", workspace.Status)
+	d.Set("created", workspace.Created)
+	d.Set("updated", workspace.Updated)
 
-	if workspace.Body != nil {
-		d.Set("description", workspace.Body.Description)
-		d.Set("created", workspace.Body.Created)
-		d.Set("updated", workspace.Body.Updated)
-	}
-
-	if workspace.Metadata != nil {
-		d.Set("tags", workspace.Metadata.Tags)
-		d.Set("metadata", workspace.Metadata.Metadata)
+	// Set server URL from ZenML service
+	if workspace.ZenMLService.Status != nil && workspace.ZenMLService.Status.ServerURL != nil {
+		d.Set("server_url", *workspace.ZenMLService.Status.ServerURL)
 	}
 
 	return nil
@@ -136,9 +146,9 @@ func resourceWorkspaceUpdate(ctx context.Context, d *schema.ResourceData, meta i
 
 	var req WorkspaceUpdate
 
-	if d.HasChange("name") {
-		name := d.Get("name").(string)
-		req.Name = &name
+	if d.HasChange("display_name") {
+		displayName := d.Get("display_name").(string)
+		req.DisplayName = &displayName
 	}
 
 	if d.HasChange("description") {
@@ -146,20 +156,9 @@ func resourceWorkspaceUpdate(ctx context.Context, d *schema.ResourceData, meta i
 		req.Description = &description
 	}
 
-	if d.HasChange("tags") {
-		tags := []string{}
-		if v, ok := d.GetOk("tags"); ok {
-			tags = convertSetToStringSlice(v.(*schema.Set))
-		}
-		req.Tags = tags
-	}
-
-	if d.HasChange("metadata") {
-		metadata := map[string]string{}
-		if v, ok := d.GetOk("metadata"); ok {
-			metadata = convertMapToStringMap(v.(map[string]interface{}))
-		}
-		req.Metadata = metadata
+	if d.HasChange("logo_url") {
+		logoURL := d.Get("logo_url").(string)
+		req.LogoURL = &logoURL
 	}
 
 	_, err := client.UpdateWorkspace(ctx, d.Id(), req)

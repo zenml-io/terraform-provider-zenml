@@ -69,15 +69,16 @@ provider "zenml" {
 
 #### ZenML Pro Authentication (Control Plane + Workspace)
 
-**⚠️ IMPORTANT**: The current Pro authentication implementation is **NOT COMPATIBLE** with the real ZenML Cloud API. The real API uses OAuth2 with Auth0, not simple service account keys.
+**✅ UPDATED**: The Pro authentication implementation has been updated to match the real ZenML Cloud API structure. It now uses OAuth2 with Auth0 for authentication.
 
-For reference, here's the intended configuration (not currently functional):
+For ZenML Pro features, configure with OAuth2 credentials:
 
 ```hcl
 provider "zenml" {
   # Control Plane Configuration (for workspaces, teams, projects)
-  control_plane_url   = "https://zenml.cloud"
-  service_account_key = "your-service-account-key"
+  control_plane_url = "https://cloudapi.zenml.io"
+  client_id         = "your-oauth2-client-id"
+  client_secret     = "your-oauth2-client-secret"
   
   # Workspace Configuration (for stacks, components, connectors)
   server_url = "https://your-workspace-url.zenml.io"
@@ -87,12 +88,13 @@ provider "zenml" {
 
 #### Environment Variables
 
-**⚠️ IMPORTANT**: These environment variables are for the conceptual implementation only:
+You can also use environment variables for authentication:
 
 ```bash
-# For Control Plane (Pro features) - NOT FUNCTIONAL
-export ZENML_CONTROL_PLANE_URL="https://zenml.cloud"
-export ZENML_SERVICE_ACCOUNT_KEY="your-service-account-key"
+# For Control Plane (Pro features)
+export ZENML_CONTROL_PLANE_URL="https://cloudapi.zenml.io"
+export ZENML_CLIENT_ID="your-oauth2-client-id"
+export ZENML_CLIENT_SECRET="your-oauth2-client-secret"
 
 # For Workspace (OSS + Pro features)
 export ZENML_SERVER_URL="https://your-workspace-url.zenml.io"

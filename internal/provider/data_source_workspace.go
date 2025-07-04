@@ -24,31 +24,30 @@ func dataSourceWorkspace() *schema.Resource {
 				Computed:    true,
 				Description: "The name of the workspace",
 			},
+			"display_name": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "Display name of the workspace",
+			},
 			"description": {
 				Type:        schema.TypeString,
 				Computed:    true,
 				Description: "Description of the workspace",
 			},
-			"tags": {
-				Type:        schema.TypeSet,
-				Computed:    true,
-				Description: "Tags for the workspace",
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
-			"metadata": {
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Description: "Metadata for the workspace",
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
-			"url": {
+			"logo_url": {
 				Type:        schema.TypeString,
 				Computed:    true,
-				Description: "URL of the workspace",
+				Description: "Logo URL of the workspace",
+			},
+			"is_managed": {
+				Type:        schema.TypeBool,
+				Computed:    true,
+				Description: "Whether the workspace is managed by ZenML Pro",
+			},
+			"server_url": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "Server URL of the workspace",
 			},
 			"status": {
 				Type:        schema.TypeString,
@@ -113,18 +112,17 @@ func dataSourceWorkspaceRead(ctx context.Context, d *schema.ResourceData, meta i
 
 	d.SetId(workspace.ID)
 	d.Set("name", workspace.Name)
-	d.Set("url", workspace.URL)
+	d.Set("display_name", workspace.DisplayName)
+	d.Set("description", workspace.Description)
+	d.Set("logo_url", workspace.LogoURL)
+	d.Set("is_managed", workspace.IsManaged)
 	d.Set("status", workspace.Status)
-
-	if workspace.Body != nil {
-		d.Set("description", workspace.Body.Description)
-		d.Set("created", workspace.Body.Created)
-		d.Set("updated", workspace.Body.Updated)
-	}
-
-	if workspace.Metadata != nil {
-		d.Set("tags", workspace.Metadata.Tags)
-		d.Set("metadata", workspace.Metadata.Metadata)
+	d.Set("created", workspace.Created)
+	d.Set("updated", workspace.Updated)
+	
+	// Set server URL from ZenML service
+	if workspace.ZenMLService.Status != nil && workspace.ZenMLService.Status.ServerURL != nil {
+		d.Set("server_url", *workspace.ZenMLService.Status.ServerURL)
 	}
 
 	return nil
