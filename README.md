@@ -4,15 +4,25 @@
 [![Release](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml/badge.svg)](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml)
 
 This Terraform provider allows you to manage ZenML resources using Infrastructure as Code. It provides the ability to manage:
+
+## ZenML OSS Resources
 - ZenML Stacks
 - Stack Components
 - Service Connectors
+
+## ZenML Pro Resources
+- Workspaces (via Control Plane API)
+- Teams and Team Management
+- Projects within Workspaces
+- Role Assignments (workspace, project, and stack-level)
+- Multi-workspace orchestration
 
 ## Requirements
 
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0
 - [Go](https://golang.org/doc/install) >= 1.20
 - [ZenML Server](https://docs.zenml.io/) >= 0.70.0
+- For Pro features: ZenML Pro subscription with Control Plane access
 
 ## Building The Provider
 
@@ -44,7 +54,11 @@ terraform {
 
 ### Authentication
 
-Configure the provider with your ZenML server URL and API key or API token.
+The provider supports multiple authentication methods depending on whether you're using ZenML OSS or Pro features:
+
+#### ZenML OSS Authentication (Workspace-only)
+
+For basic ZenML OSS usage, configure with your ZenML server URL and API key:
 
 ```hcl
 provider "zenml" {
@@ -53,98 +67,98 @@ provider "zenml" {
 }
 ```
 
-For OSS users, the `server_url` is basically the root URL of your ZenML server deployment.
-For Pro users, the `server_url` is the the URL of your workspace, which can be found
-in your dashboard:
+#### ZenML Pro Authentication (Control Plane + Workspace)
 
-![ZenML workspace URL](assets/workspace_url.png)
-
-It should look like something like `https://1bfe8d94-zenml.cloudinfra.zenml.io`.
-
-You have two options to provide a token or key:
-
-#### Option 1: Using `ZENML_API_KEY`
-
-You can input the `ZENML_API_KEY` as follows: 
+For ZenML Pro features that require control plane access, provide both control plane and workspace credentials:
 
 ```hcl
 provider "zenml" {
-  server_url = "https://your-zenml-server.com"
-  api_key    = "your-api-key"
+  # Control Plane Configuration (for workspaces, teams, projects)
+  control_plane_url   = "https://zenml.cloud"
+  service_account_key = "your-service-account-key"
+  
+  # Workspace Configuration (for stacks, components, connectors)
+  server_url = "https://your-workspace-url.zenml.io"
+  api_key    = "your-workspace-api-key"
 }
 ```
+
+#### Environment Variables
 
 You can also use environment variables:
 
 ```bash
-export ZENML_SERVER_URL="https://your-zenml-server.com"
-export ZENML_API_KEY="your-api-key"
+# For Control Plane (Pro features)
+export ZENML_CONTROL_PLANE_URL="https://zenml.cloud"
+export ZENML_SERVICE_ACCOUNT_KEY="your-service-account-key"
+
+# For Workspace (OSS + Pro features)
+export ZENML_SERVER_URL="https://your-workspace-url.zenml.io"
+export ZENML_API_KEY="your-workspace-api-key"
 ```
 
-To generate a `ZENML_API_KEY`, follow these steps:
+### Authentication Flow
 
-1. Install ZenML:
+The provider automatically chooses the appropriate authentication method:
+
+1. **Control Plane requests** (workspaces, teams, projects, role assignments) use `service_account_key`
+2. **Workspace requests** (stacks, components, connectors) use `api_key` or `api_token`
+3. **Mixed scenarios** use both authentication methods as needed
+
+### Getting Your Credentials
+
+#### Service Account Key (Pro)
+
+1. Log in to your ZenML Pro dashboard
+2. Navigate to Settings → Service Accounts
+3. Create a new service account or use an existing one
+4. Copy the service account key
+
+#### Workspace API Key
+
+1. Install ZenML CLI:
 ```bash
 pip install zenml
 ```
 
 2. Login to your ZenML server:
 ```bash
-zenml login --url <API_URL>
+zenml login --url <WORKSPACE_URL>
 ```
 
-3. Create a service account and get the API key:
+3. Create a service account:
 ```bash
-zenml service-account create <MYSERVICEACCOUNTNAME>
+zenml service-account create <SERVICE_ACCOUNT_NAME>
 ```
 
-This command will print out the `ZENML_API_KEY` that you can use with this provider.
+### Provider Configuration Options
 
-#### Option 2: Using `ZENML_API_TOKEN`
-
-Alternatively, you can use an API token for authentication:
+The provider supports flexible configuration:
 
 ```hcl
 provider "zenml" {
-  server_url = "https://your-zenml-server.com"
-  api_token  = "your-api-token"
+  # Control Plane (required for Pro features)
+  control_plane_url   = "https://zenml.cloud"           # Optional, defaults to https://zenml.cloud
+  service_account_key = "your-service-account-key"      # Required for Pro features
+  
+  # Workspace (required for OSS features, optional for Pro)
+  server_url = "https://workspace.zenml.io"             # Required for OSS, optional for Pro
+  api_key    = "your-api-key"                           # Alternative: api_token
+  api_token  = "your-api-token"                         # Alternative: api_key
 }
-```
-
-You can also use environment variables:
-```bash
-export ZENML_SERVER_URL="https://your-zenml-server.com"
-export ZENML_API_TOKEN="your-api-token"
 ```
 
 ### Example Usage
 
-> **Hint:** The ZenML Terraform provider is being heavily used in all our Terraform modules. Their code is available on GitHub and can be used as a reference:
-> - [zenml-stack/aws](https://github.com/zenml-io/terraform-aws-zenml-stack)
-> - [zenml-stack/gcp](https://github.com/zenml-io/terraform-gcp-zenml-stack)
-> - [zenml-stack/azure](https://github.com/zenml-io/terraform-azure-zenml-stack)
-
-Here's a basic example of creating a stack with components:
+#### Basic OSS Usage
 
 ```hcl
-# Create a service connector for GCP
-resource "zenml_service_connector" "gcp" {
-  name        = "gcp-connector"
-  type        = "gcp"
-  auth_method = "service-account"
-  
-  configuration = {
-    project_id = "my-project"
-    location   = "us-central1"
-    service_account_json = file("service-account.json")
-  }
-  
-  labels = {
-    environment = "production"
-  }
+provider "zenml" {
+  server_url = "https://your-zenml-server.com"
+  api_key    = "your-api-key"
 }
 
-# Create an artifact store component
+# Create a stack with components
 resource "zenml_stack_component" "artifact_store" {
   name   = "gcs-store"
   type   = "artifact_store"
@@ -153,29 +167,104 @@ resource "zenml_stack_component" "artifact_store" {
   configuration = {
     path = "gs://my-bucket/artifacts"
   }
-  
-  connector_id = zenml_service_connector.gcp.id
-  
-  labels = {
-    environment = "production"
-  }
 }
 
-# Create a stack using the components
 resource "zenml_stack" "ml_stack" {
   name = "production-stack"
   
   components = {
     artifact_store = zenml_stack_component.artifact_store.id
   }
-  
-  labels = {
-    environment = "production"
-  }
 }
 ```
 
-See the [examples](./examples/) directory for more complete examples.
+#### Pro Usage with Multi-Workspace Management
+
+```hcl
+provider "zenml" {
+  control_plane_url   = "https://zenml.cloud"
+  service_account_key = var.service_account_key
+}
+
+# Create a workspace
+resource "zenml_workspace" "team_alpha" {
+  name        = "team-alpha-workspace"
+  description = "Workspace for Team Alpha ML projects"
+  
+  tags = {
+    team        = "alpha"
+    environment = "production"
+    cost-center = "ml-research"
+  }
+}
+
+# Create teams
+resource "zenml_team" "developers" {
+  name        = "alpha-developers"
+  description = "Team Alpha developers"
+  
+  members = [
+    "alice@company.com",
+    "bob@company.com"
+  ]
+}
+
+resource "zenml_team" "ml_engineers" {
+  name        = "alpha-ml-engineers"
+  description = "Team Alpha ML engineers"
+  
+  members = [
+    "charlie@company.com",
+    "diana@company.com"
+  ]
+}
+
+# Create a project within the workspace
+resource "zenml_project" "recommendation_engine" {
+  workspace_id = zenml_workspace.team_alpha.id
+  name         = "recommendation-engine"
+  description  = "Customer recommendation ML pipeline"
+  
+  tags = {
+    project-type = "ml-pipeline"
+    priority     = "high"
+  }
+}
+
+# Assign workspace-level roles
+resource "zenml_workspace_role_assignment" "dev_team_access" {
+  workspace_id = zenml_workspace.team_alpha.id
+  team_id      = zenml_team.developers.id
+  role         = "Editor"
+}
+
+resource "zenml_project_role_assignment" "ml_team_project_access" {
+  project_id = zenml_project.recommendation_engine.id
+  team_id    = zenml_team.ml_engineers.id
+  role       = "Admin"
+}
+```
+
+See the [examples](./examples/) directory for more complete examples, including the [complete Pro example](./examples/complete-pro/).
+
+## New Pro Resources
+
+### Workspaces
+- [Workspace Resource](./docs/resources/workspace.md)
+- [Workspace Data Source](./docs/data-sources/workspace.md)
+
+### Teams
+- [Team Resource](./docs/resources/team.md)
+- [Team Data Source](./docs/data-sources/team.md)
+
+### Projects
+- [Project Resource](./docs/resources/project.md)
+- [Project Data Source](./docs/data-sources/project.md)
+
+### Role Assignments
+- [Workspace Role Assignment Resource](./docs/resources/workspace_role_assignment.md)
+- [Project Role Assignment Resource](./docs/resources/project_role_assignment.md)
+- [Stack Role Assignment Resource](./docs/resources/stack_role_assignment.md)
 
 ## Development
 
