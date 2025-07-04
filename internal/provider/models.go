@@ -23,6 +23,16 @@ func (e *APIError) Error() string {
 	return e.Detail
 }
 
+// ControlPlaneInfo represents the control plane information response
+type ControlPlaneInfo struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Version string            `json:"version"`
+	URL     string            `json:"url"`
+	Status  string            `json:"status"`
+	Metadata map[string]string `json:"metadata"`
+}
+
 // ServerInfo represents the server information response from the API
 type ServerInfo struct {
 	ID                  string            `json:"id"`
@@ -39,6 +49,148 @@ type ServerInfo struct {
 	ProWorkspaceID      *string           `json:"pro_workspace_id"`
 	ProWorkspaceName    *string           `json:"pro_workspace_name"`
 	Metadata            map[string]string `json:"metadata"`
+}
+
+// Workspace models
+type WorkspaceRequest struct {
+	Name        string            `json:"name"`
+	Description *string           `json:"description,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type WorkspaceResponse struct {
+	ID          string                     `json:"id"`
+	Name        string                     `json:"name"`
+	Body        *WorkspaceResponseBody     `json:"body,omitempty"`
+	Metadata    *WorkspaceResponseMetadata `json:"metadata,omitempty"`
+	URL         string                     `json:"url"`
+	Status      string                     `json:"status"`
+}
+
+type WorkspaceResponseBody struct {
+	Created     string `json:"created"`
+	Updated     string `json:"updated"`
+	Description string `json:"description"`
+}
+
+type WorkspaceResponseMetadata struct {
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type WorkspaceUpdate struct {
+	Name        *string           `json:"name,omitempty"`
+	Description *string           `json:"description,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+// Team models
+type TeamRequest struct {
+	ControlPlaneID string   `json:"control_plane_id"`
+	Name           string   `json:"name"`
+	Description    *string  `json:"description,omitempty"`
+	Members        []string `json:"members,omitempty"`
+}
+
+type TeamResponse struct {
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Body        *TeamResponseBody     `json:"body,omitempty"`
+	Metadata    *TeamResponseMetadata `json:"metadata,omitempty"`
+}
+
+type TeamResponseBody struct {
+	Created         string `json:"created"`
+	Updated         string `json:"updated"`
+	Description     string `json:"description"`
+	ControlPlaneID  string `json:"control_plane_id"`
+}
+
+type TeamResponseMetadata struct {
+	Members []TeamMember `json:"members,omitempty"`
+}
+
+type TeamMember struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+type TeamUpdate struct {
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Members     []string `json:"members,omitempty"`
+}
+
+// Project models
+type ProjectRequest struct {
+	WorkspaceID string            `json:"workspace_id"`
+	Name        string            `json:"name"`
+	Description *string           `json:"description,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type ProjectResponse struct {
+	ID          string                   `json:"id"`
+	Name        string                   `json:"name"`
+	Body        *ProjectResponseBody     `json:"body,omitempty"`
+	Metadata    *ProjectResponseMetadata `json:"metadata,omitempty"`
+}
+
+type ProjectResponseBody struct {
+	Created     string `json:"created"`
+	Updated     string `json:"updated"`
+	Description string `json:"description"`
+	WorkspaceID string `json:"workspace_id"`
+}
+
+type ProjectResponseMetadata struct {
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type ProjectUpdate struct {
+	Name        *string           `json:"name,omitempty"`
+	Description *string           `json:"description,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+// Role assignment models
+type RoleAssignmentRequest struct {
+	ResourceID   string `json:"resource_id"`
+	ResourceType string `json:"resource_type"`
+	UserID       *string `json:"user_id,omitempty"`
+	TeamID       *string `json:"team_id,omitempty"`
+	Role         string `json:"role"`
+}
+
+type RoleAssignmentResponse struct {
+	ID           string                       `json:"id"`
+	ResourceID   string                       `json:"resource_id"`
+	ResourceType string                       `json:"resource_type"`
+	Body         *RoleAssignmentResponseBody  `json:"body,omitempty"`
+	Metadata     *RoleAssignmentResponseMetadata `json:"metadata,omitempty"`
+}
+
+type RoleAssignmentResponseBody struct {
+	Created string `json:"created"`
+	Updated string `json:"updated"`
+	UserID  *string `json:"user_id,omitempty"`
+	TeamID  *string `json:"team_id,omitempty"`
+	Role    string `json:"role"`
+}
+
+type RoleAssignmentResponseMetadata struct {
+	User *UserResponse `json:"user,omitempty"`
+	Team *TeamResponse `json:"team,omitempty"`
+}
+
+type RoleAssignmentUpdate struct {
+	Role string `json:"role"`
 }
 
 // StackRequest represents a request to create a new stack
@@ -242,14 +394,4 @@ type UserMetadata struct {
 	InfraProviders           []string `json:"infra_providers"`
 	FinishedOnboardingSurvey bool     `json:"finished_onboarding_survey"`
 	OverviewTourDone         bool     `json:"overview_tour_done"`
-}
-
-// ProjectResponse represents a project response from the API
-type ProjectResponse struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Description string `json:"description,omitempty"`
-	Created     string `json:"created"`
-	Updated     string `json:"updated"`
 }

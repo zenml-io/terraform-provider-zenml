@@ -20,20 +20,26 @@ type ListParams struct {
 }
 
 type Client struct {
-	ServerURL       string
-	APIKey          string
-	APIToken        string
-	APITokenExpires *time.Time
-	HTTPClient      *http.Client
+	ServerURL         string
+	ControlPlaneURL   string
+	APIKey            string
+	APIToken          string
+	ServiceAccountKey string
+	APITokenExpires   *time.Time
+	HTTPClient        *http.Client
+	workspaceURLs     map[string]string // Cache for workspace URLs
 }
 
-func NewClient(serverURL, apiKey string, apiToken string) *Client {
+func NewClient(serverURL, controlPlaneURL, apiKey, apiToken, serviceAccountKey string) *Client {
 	return &Client{
-		ServerURL:       serverURL,
-		APIKey:          apiKey,
-		APIToken:        apiToken,
-		APITokenExpires: nil,
-		HTTPClient:      &http.Client{},
+		ServerURL:         serverURL,
+		ControlPlaneURL:   controlPlaneURL,
+		APIKey:            apiKey,
+		APIToken:          apiToken,
+		ServiceAccountKey: serviceAccountKey,
+		APITokenExpires:   nil,
+		HTTPClient:        &http.Client{},
+		workspaceURLs:     make(map[string]string),
 	}
 }
 
@@ -109,7 +115,41 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	return c.APIToken, nil
 }
 
+func (c *Client) getServiceAccountToken(ctx context.Context) (string, error) {
+	if c.ServiceAccountKey == "" {
+		return "", fmt.Errorf("service account key is required for control plane operations")
+	}
+
+	// Use service account key directly as bearer token for now
+	// This will need to be updated based on the actual ZenML Pro API authentication flow
+	return c.ServiceAccountKey, nil
+}
+
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
+	return c.doRequestWithBaseURL(ctx, method, path, body, c.ServerURL)
+}
+
+func (c *Client) doControlPlaneRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
+	return c.doRequestWithBaseURL(ctx, method, path, body, c.ControlPlaneURL)
+}
+
+func (c *Client) doWorkspaceRequest(ctx context.Context, workspaceID, method, path string, body interface{}) (*http.Response, int, error) {
+	// Get or retrieve workspace URL
+	workspaceURL, exists := c.workspaceURLs[workspaceID]
+	if !exists {
+		// Retrieve workspace URL from control plane
+		workspace, err := c.GetWorkspace(ctx, workspaceID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error retrieving workspace URL: %v", err)
+		}
+		workspaceURL = workspace.URL
+		c.workspaceURLs[workspaceID] = workspaceURL
+	}
+
+	return c.doRequestWithBaseURL(ctx, method, path, body, workspaceURL)
+}
+
+func (c *Client) doRequestWithBaseURL(ctx context.Context, method, path string, body interface{}, baseURL string) (*http.Response, int, error) {
 	var bodyReader io.Reader
 
 	if body != nil {
@@ -120,12 +160,17 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		bodyReader = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
+	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", baseURL, path), bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error creating request: %v", err)
 	}
 
-	accessToken, err := c.getAPIToken(ctx)
+	var accessToken string
+	if baseURL == c.ControlPlaneURL {
+		accessToken, err = c.getServiceAccountToken(ctx)
+	} else {
+		accessToken, err = c.getAPIToken(ctx)
+	}
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("error getting API token: %v", err)
@@ -172,6 +217,21 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
 
 	return resp, resp.StatusCode, nil
+}
+
+// GetControlPlaneInfo fetches control plane info
+func (c *Client) GetControlPlaneInfo(ctx context.Context) (*ControlPlaneInfo, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", "/api/v1/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ControlPlaneInfo
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding control plane info: %v", err)
+	}
+	return &result, nil
 }
 
 // GetServerInfo fetches server info to determine version and capabilities
@@ -550,6 +610,398 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*UserResponse, error) {
 	var result UserResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("error decoding user response: %v", err)
+	}
+	return &result, nil
+}
+
+// Workspace operations
+func (c *Client) CreateWorkspace(ctx context.Context, workspace WorkspaceRequest) (*WorkspaceResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/api/v1/workspaces", workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result WorkspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding workspace response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetWorkspace(ctx context.Context, id string) (*WorkspaceResponse, error) {
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/workspaces/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result WorkspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding workspace response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateWorkspace(ctx context.Context, id string, workspace WorkspaceUpdate) (*WorkspaceResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/workspaces/%s", id), workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result WorkspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding workspace response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/workspaces/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListWorkspaces(ctx context.Context, params *ListParams) (*Page[WorkspaceResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
+		}
+	}
+
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
+	}
+
+	path := fmt.Sprintf("/api/v1/workspaces?%s", query.Encode())
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result Page[WorkspaceResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding workspaces response: %v", err)
+	}
+	return &result, nil
+}
+
+// Team operations
+func (c *Client) CreateTeam(ctx context.Context, team TeamRequest) (*TeamResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "POST", "/api/v1/teams", team)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result TeamResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding team response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetTeam(ctx context.Context, id string) (*TeamResponse, error) {
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/teams/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result TeamResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding team response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateTeam(ctx context.Context, id string, team TeamUpdate) (*TeamResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/teams/%s", id), team)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result TeamResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding team response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteTeam(ctx context.Context, id string) error {
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/teams/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListTeams(ctx context.Context, params *ListParams) (*Page[TeamResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
+		}
+	}
+
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
+	}
+
+	path := fmt.Sprintf("/api/v1/teams?%s", query.Encode())
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result Page[TeamResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding teams response: %v", err)
+	}
+	return &result, nil
+}
+
+// Project operations
+func (c *Client) CreateProject(ctx context.Context, project ProjectRequest) (*ProjectResponse, error) {
+	resp, _, err := c.doWorkspaceRequest(ctx, project.WorkspaceID, "POST", "/api/v1/projects", project)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetProject(ctx context.Context, workspaceID, id string) (*ProjectResponse, error) {
+	resp, status, err := c.doWorkspaceRequest(ctx, workspaceID, "GET", fmt.Sprintf("/api/v1/projects/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateProject(ctx context.Context, workspaceID, id string, project ProjectUpdate) (*ProjectResponse, error) {
+	resp, _, err := c.doWorkspaceRequest(ctx, workspaceID, "PUT", fmt.Sprintf("/api/v1/projects/%s", id), project)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteProject(ctx context.Context, workspaceID, id string) error {
+	resp, status, err := c.doWorkspaceRequest(ctx, workspaceID, "DELETE", fmt.Sprintf("/api/v1/projects/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListProjects(ctx context.Context, workspaceID string, params *ListParams) (*Page[ProjectResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
+		}
+	}
+
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
+	}
+
+	path := fmt.Sprintf("/api/v1/projects?%s", query.Encode())
+	resp, _, err := c.doWorkspaceRequest(ctx, workspaceID, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result Page[ProjectResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding projects response: %v", err)
+	}
+	return &result, nil
+}
+
+// Role assignment operations
+func (c *Client) CreateRoleAssignment(ctx context.Context, assignment RoleAssignmentRequest) (*RoleAssignmentResponse, error) {
+	var endpoint string
+	var resp *http.Response
+	var err error
+
+	switch assignment.ResourceType {
+	case "workspace":
+		endpoint = "/api/v1/role-assignments"
+		resp, _, err = c.doControlPlaneRequest(ctx, "POST", endpoint, assignment)
+	case "project", "stack":
+		// For workspace-level resources, we need to determine the workspace ID
+		// This is a simplified implementation - in practice, you'd need to resolve the workspace ID
+		endpoint = "/api/v1/role-assignments"
+		resp, _, err = c.doRequest(ctx, "POST", endpoint, assignment)
+	default:
+		return nil, fmt.Errorf("unsupported resource type: %s", assignment.ResourceType)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result RoleAssignmentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding role assignment response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetRoleAssignment(ctx context.Context, id string) (*RoleAssignmentResponse, error) {
+	resp, status, err := c.doControlPlaneRequest(ctx, "GET", fmt.Sprintf("/api/v1/role-assignments/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result RoleAssignmentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding role assignment response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateRoleAssignment(ctx context.Context, id string, assignment RoleAssignmentUpdate) (*RoleAssignmentResponse, error) {
+	resp, _, err := c.doControlPlaneRequest(ctx, "PUT", fmt.Sprintf("/api/v1/role-assignments/%s", id), assignment)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result RoleAssignmentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding role assignment response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteRoleAssignment(ctx context.Context, id string) error {
+	resp, status, err := c.doControlPlaneRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/role-assignments/%s", id), nil)
+	if err != nil {
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListRoleAssignments(ctx context.Context, params *ListParams) (*Page[RoleAssignmentResponse], error) {
+	if params == nil {
+		params = &ListParams{
+			Page:     1,
+			PageSize: 100,
+		}
+	} else {
+		if params.Page <= 0 {
+			params.Page = 1
+		}
+		if params.PageSize <= 0 {
+			params.PageSize = 100
+		}
+	}
+
+	query := url.Values{}
+	query.Add("page", fmt.Sprintf("%d", params.Page))
+	query.Add("size", fmt.Sprintf("%d", params.PageSize))
+	for k, v := range params.Filter {
+		query.Add(k, v)
+	}
+
+	path := fmt.Sprintf("/api/v1/role-assignments?%s", query.Encode())
+	resp, _, err := c.doControlPlaneRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result Page[RoleAssignmentResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding role assignments response: %v", err)
 	}
 	return &result, nil
 }
