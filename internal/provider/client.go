@@ -553,3 +553,136 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*UserResponse, error) {
 	}
 	return &result, nil
 }
+
+// Project operations
+func (c *Client) CreateProject(ctx context.Context, project ProjectRequest) (*ProjectResponse, error) {
+	endpoint := "/api/v1/projects"
+	resp, _, err := c.doRequest(ctx, "POST", endpoint, project)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetProject(ctx context.Context, nameOrID string) (*ProjectResponse, error) {
+	endpoint := fmt.Sprintf("/api/v1/projects/%s", nameOrID)
+	resp, status, err := c.doRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		if status == 404 {
+			return nil, fmt.Errorf("404")
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateProject(ctx context.Context, nameOrID string, project ProjectUpdate) (*ProjectResponse, error) {
+	endpoint := fmt.Sprintf("/api/v1/projects/%s", nameOrID)
+	resp, _, err := c.doRequest(ctx, "PUT", endpoint, project)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteProject(ctx context.Context, nameOrID string) error {
+	endpoint := fmt.Sprintf("/api/v1/projects/%s", nameOrID)
+	resp, status, err := c.doRequest(ctx, "DELETE", endpoint, nil)
+	if err != nil {
+		if status == 404 {
+			return fmt.Errorf("404")
+		}
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (c *Client) ListProjects(ctx context.Context, params ProjectFilterParams) (*PageProjectResponse, error) {
+	endpoint := "/api/v1/projects"
+	
+	// Build query parameters
+	query := make(url.Values)
+	if params.Hydrate != nil {
+		query.Set("hydrate", fmt.Sprintf("%t", *params.Hydrate))
+	}
+	if params.SortBy != nil {
+		query.Set("sort_by", *params.SortBy)
+	}
+	if params.LogicalOperator != nil {
+		query.Set("logical_operator", string(*params.LogicalOperator))
+	}
+	if params.Page != nil {
+		query.Set("page", fmt.Sprintf("%d", *params.Page))
+	}
+	if params.Size != nil {
+		query.Set("size", fmt.Sprintf("%d", *params.Size))
+	}
+	if params.ID != nil {
+		query.Set("id", *params.ID)
+	}
+	if params.Created != nil {
+		query.Set("created", *params.Created)
+	}
+	if params.Updated != nil {
+		query.Set("updated", *params.Updated)
+	}
+	if params.Name != nil {
+		query.Set("name", *params.Name)
+	}
+	if params.DisplayName != nil {
+		query.Set("display_name", *params.DisplayName)
+	}
+
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+
+	resp, _, err := c.doRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result PageProjectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding projects response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetProjectStatistics(ctx context.Context, nameOrID string) (*ProjectStatistics, error) {
+	endpoint := fmt.Sprintf("/api/v1/projects/%s/statistics", nameOrID)
+	resp, status, err := c.doRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		if status == 404 {
+			return nil, fmt.Errorf("404")
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ProjectStatistics
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding project statistics response: %v", err)
+	}
+	return &result, nil
+}

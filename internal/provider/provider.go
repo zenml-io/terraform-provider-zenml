@@ -40,6 +40,7 @@ func Provider() *schema.Provider {
 			"zenml_stack":             resourceStack(),
 			"zenml_stack_component":   resourceStackComponent(),
 			"zenml_service_connector": resourceServiceConnector(),
+			"zenml_project":           resourceProject(),
 		},
 		DataSourcesMap: map[string]*schema.Resource{
 			"zenml_server":            dataSourceServer(),

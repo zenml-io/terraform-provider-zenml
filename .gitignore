@@ -24,3 +24,10 @@ go.work.sum
 # env file
 .env
 .aider*
+
+# IDE specific files
+.idea/
+
+#Example
+*.tfstate
+*.tfvars
