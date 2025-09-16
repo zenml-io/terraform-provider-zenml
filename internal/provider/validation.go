@@ -95,6 +95,7 @@ var (
 		"orchestrator",
 		"step_operator",
 		"model_registry",
+		"deployer",
 	}
 )
 
