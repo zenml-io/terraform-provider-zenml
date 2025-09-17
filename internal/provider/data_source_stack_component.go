@@ -42,6 +42,7 @@ func dataSourceStackComponent() *schema.Resource {
 					"orchestrator",
 					"step_operator",
 					"model_registry",
+					"deployer",
 				}, false),
 			},
 			"flavor": {
