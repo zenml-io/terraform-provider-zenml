@@ -244,12 +244,71 @@ type UserMetadata struct {
 	OverviewTourDone         bool     `json:"overview_tour_done"`
 }
 
+// ProjectRequest represents a request to create a new project
+type ProjectRequest struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // ProjectResponse represents a project response from the API
 type ProjectResponse struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Description string `json:"description,omitempty"`
+	ID       string                   `json:"id"`
+	Name     string                   `json:"name"`
+	Body     *ProjectResponseBody     `json:"body,omitempty"`
+	Metadata *ProjectResponseMetadata `json:"metadata,omitempty"`
+}
+
+type ProjectResponseBody struct {
 	Created     string `json:"created"`
 	Updated     string `json:"updated"`
+	DisplayName string `json:"display_name"`
+}
+
+type ProjectResponseMetadata struct {
+	Description string `json:"description,omitempty"`
+}
+
+// ProjectUpdate represents an update to an existing project
+type ProjectUpdate struct {
+	Name        *string `json:"name,omitempty"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// PageProjectResponse represents a paginated response of projects
+type PageProjectResponse struct {
+	Index      int               `json:"index"`
+	MaxSize    int               `json:"max_size"`
+	TotalPages int               `json:"total_pages"`
+	Total      int               `json:"total"`
+	Items      []ProjectResponse `json:"items"`
+}
+
+// ProjectStatistics represents project statistics
+type ProjectStatistics struct {
+	Pipelines int `json:"pipelines"`
+	Runs      int `json:"runs"`
+}
+
+// LogicalOperator represents logical operators for filtering
+type LogicalOperator string
+
+const (
+	LogicalOperatorAnd LogicalOperator = "and"
+	LogicalOperatorOr  LogicalOperator = "or"
+)
+
+// ProjectFilterParams represents parameters for filtering projects
+type ProjectFilterParams struct {
+	Hydrate         *bool            `json:"hydrate,omitempty"`
+	SortBy          *string          `json:"sort_by,omitempty"`
+	LogicalOperator *LogicalOperator `json:"logical_operator,omitempty"`
+	Page            *int             `json:"page,omitempty"`
+	Size            *int             `json:"size,omitempty"`
+	ID              *string          `json:"id,omitempty"`
+	Created         *string          `json:"created,omitempty"`
+	Updated         *string          `json:"updated,omitempty"`
+	Name            *string          `json:"name,omitempty"`
+	DisplayName     *string          `json:"display_name,omitempty"`
 }
