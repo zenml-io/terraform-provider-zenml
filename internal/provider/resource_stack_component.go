@@ -3,6 +3,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -96,12 +97,28 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Create the component request
+	configMap := make(map[string]interface{})
+	for k, v := range d.Get("configuration").(map[string]interface{}) {
+		stringValue := v.(string)
+		// Handle known JSON fields that need parsing
+		if k == "labels" {
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(stringValue), &parsed); err == nil {
+				configMap[k] = parsed
+			} else {
+				configMap[k] = stringValue
+			}
+		} else {
+			configMap[k] = stringValue
+		}
+	}
+	
 	component := ComponentRequest{
 		User:          user.ID, // Add the user ID
 		Name:          d.Get("name").(string),
 		Type:          d.Get("type").(string),
 		Flavor:        d.Get("flavor").(string),
-		Configuration: d.Get("configuration").(map[string]interface{}),
+		Configuration: configMap,
 	}
 
 	// Handle optional fields
