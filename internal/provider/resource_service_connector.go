@@ -66,6 +66,11 @@ func resourceServiceConnector() *schema.Resource {
 					Type: schema.TypeString,
 				},
 			},
+			"verify": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  true,
+			},
 		},
 
 		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
@@ -143,13 +148,15 @@ func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData,
 	}
 
 	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		verify, err := client.VerifyServiceConnector(ctx, *connector)
-		if err != nil {
-			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
-		}
+		if d.Get("verify").(bool) {
+			verify, err := client.VerifyServiceConnector(ctx, *connector)
+			if err != nil {
+				return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
+			}
 
-		if verify.Error != nil {
-			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
+			if verify.Error != nil {
+				return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
+			}
 		}
 
 		resp, err := client.CreateServiceConnector(ctx, *connector)
@@ -236,13 +243,15 @@ func resourceServiceConnectorUpdate(ctx context.Context, d *schema.ResourceData,
 	}
 
 	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		resources, err := client.VerifyServiceConnector(ctx, *connector)
-		if err != nil {
-			return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
-		}
+		if d.Get("verify").(bool) {
+			resources, err := client.VerifyServiceConnector(ctx, *connector)
+			if err != nil {
+				return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
+			}
 
-		if resources.Error != nil {
-			return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *resources.Error))
+			if resources.Error != nil {
+				return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *resources.Error))
+			}
 		}
 
 		update := ServiceConnectorUpdate{}
