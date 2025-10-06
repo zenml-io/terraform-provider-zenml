@@ -124,7 +124,7 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Make the API call
-	resp, err := client.CreateComponent(ctx, component)
+	_, err = client.CreateComponent(ctx, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			return diag.FromErr(fmt.Errorf("API error: %s", apiErr.Error()))
@@ -132,26 +132,7 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 		return diag.FromErr(fmt.Errorf("failed to create component: %w", err))
 	}
 
-	// Set the ID from the response
-	d.SetId(resp.ID)
-
-	// Set other attributes from the response
-	d.Set("name", resp.Name)
-	if resp.Body != nil {
-		d.Set("type", resp.Body.Type)
-		d.Set("flavor", resp.Body.Flavor)
-	}
-	if resp.Metadata != nil {
-		d.Set("configuration", resp.Metadata.Configuration)
-		if resp.Metadata.ConnectorResourceID != nil {
-			d.Set("connector_resource_id", *resp.Metadata.ConnectorResourceID)
-		}
-		if resp.Metadata.Labels != nil {
-			d.Set("labels", resp.Metadata.Labels)
-		}
-	}
-
-	return nil
+	return resourceStackComponentRead(ctx, d, m)
 }
 
 func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
@@ -180,6 +161,9 @@ func resourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m i
 	if component.Metadata != nil {
 		d.Set("configuration", component.Metadata.Configuration)
 
+		if component.Metadata.Connector != nil {
+			d.Set("connector_id", component.Metadata.Connector.ID)
+		}
 		if component.Metadata.ConnectorResourceID != nil {
 			d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID)
 		}
