@@ -124,7 +124,7 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Make the API call
-	_, err = client.CreateComponent(ctx, component)
+	resp, err := client.CreateComponent(ctx, component)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			return diag.FromErr(fmt.Errorf("API error: %s", apiErr.Error()))
@@ -132,6 +132,7 @@ func resourceStackComponentCreate(ctx context.Context, d *schema.ResourceData, m
 		return diag.FromErr(fmt.Errorf("failed to create component: %w", err))
 	}
 
+	d.SetId(resp.ID)
 	return resourceStackComponentRead(ctx, d, m)
 }
 
