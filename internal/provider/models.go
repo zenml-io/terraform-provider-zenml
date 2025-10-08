@@ -132,7 +132,6 @@ type ServiceConnectorRequest struct {
 	Secrets       map[string]string      `json:"secrets,omitempty"`
 	Labels        map[string]string      `json:"labels,omitempty"`
 	ResourceID    *string                `json:"resource_id,omitempty"`
-	ExpiresAt     *string                `json:"expires_at,omitempty"`
 }
 
 type ServiceConnectorResourceType struct {
@@ -274,41 +273,4 @@ type ProjectUpdate struct {
 	Name        *string `json:"name,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	Description *string `json:"description,omitempty"`
-}
-
-// PageProjectResponse represents a paginated response of projects
-type PageProjectResponse struct {
-	Index      int               `json:"index"`
-	MaxSize    int               `json:"max_size"`
-	TotalPages int               `json:"total_pages"`
-	Total      int               `json:"total"`
-	Items      []ProjectResponse `json:"items"`
-}
-
-// ProjectStatistics represents project statistics
-type ProjectStatistics struct {
-	Pipelines int `json:"pipelines"`
-	Runs      int `json:"runs"`
-}
-
-// LogicalOperator represents logical operators for filtering
-type LogicalOperator string
-
-const (
-	LogicalOperatorAnd LogicalOperator = "and"
-	LogicalOperatorOr  LogicalOperator = "or"
-)
-
-// ProjectFilterParams represents parameters for filtering projects
-type ProjectFilterParams struct {
-	Hydrate         *bool            `json:"hydrate,omitempty"`
-	SortBy          *string          `json:"sort_by,omitempty"`
-	LogicalOperator *LogicalOperator `json:"logical_operator,omitempty"`
-	Page            *int             `json:"page,omitempty"`
-	Size            *int             `json:"size,omitempty"`
-	ID              *string          `json:"id,omitempty"`
-	Created         *string          `json:"created,omitempty"`
-	Updated         *string          `json:"updated,omitempty"`
-	Name            *string          `json:"name,omitempty"`
-	DisplayName     *string          `json:"display_name,omitempty"`
 }

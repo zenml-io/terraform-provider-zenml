@@ -2,247 +2,228 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-func dataSourceStackComponent() *schema.Resource {
-	return &schema.Resource{
-		Description: "Data source for ZenML stack components",
-		ReadContext: dataSourceStackComponentRead,
-		Schema: map[string]*schema.Schema{
-			"id": {
-				Description: "ID of the stack component",
-				Type:        schema.TypeString,
-				Optional:    true,
+var _ datasource.DataSource = &StackComponentDataSource{}
+
+func NewStackComponentDataSource() datasource.DataSource {
+	return &StackComponentDataSource{}
+}
+
+type StackComponentDataSource struct {
+	client *Client
+}
+
+type StackComponentDataSourceModel struct {
+	ID                  types.String `tfsdk:"id"`
+	Name                types.String `tfsdk:"name"`
+	Type                types.String `tfsdk:"type"`
+	Flavor              types.String `tfsdk:"flavor"`
+	Configuration       types.Map    `tfsdk:"configuration"`
+	ConnectorID         types.String `tfsdk:"connector_id"`
+	ConnectorResourceID types.String `tfsdk:"connector_resource_id"`
+	Labels              types.Map    `tfsdk:"labels"`
+	Created             types.String `tfsdk:"created"`
+	Updated             types.String `tfsdk:"updated"`
+}
+
+func (d *StackComponentDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_stack_component"
+}
+
+func (d *StackComponentDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Data source for ZenML stack components",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				MarkdownDescription: "ID of the stack component",
+				Optional:            true,
 			},
-			"name": {
-				Description: "Name of the stack component",
-				Type:        schema.TypeString,
-				Optional:    true,
+			"name": schema.StringAttribute{
+				MarkdownDescription: "Name of the stack component",
+				Optional:            true,
 			},
-			"type": {
-				Description: "Type of the stack component",
-				Type:        schema.TypeString,
-				Optional:    true,
-				ValidateFunc: validation.StringInSlice([]string{
-					"alerter",
-					"annotator",
-					"artifact_store",
-					"container_registry",
-					"data_validator",
-					"experiment_tracker",
-					"feature_store",
-					"image_builder",
-					"model_deployer",
-					"orchestrator",
-					"step_operator",
-					"model_registry",
-					"deployer",
-				}, false),
-			},
-			"flavor": {
-				Description: "Flavor of the stack component",
-				Type:        schema.TypeString,
-				Computed:    true,
-			},
-			"configuration": {
-				Description: "Configuration of the stack component",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-				Sensitive: true,
-			},
-			"labels": {
-				Description: "Labels associated with the stack component",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+			"type": schema.StringAttribute{
+				MarkdownDescription: "Type of the stack component",
+				Optional:            true,
+				Validators: []validator.String{
+					stringvalidator.OneOf(validComponentTypes...),
 				},
 			},
-			"connector": {
-				Description: "Service connector configuration",
-				Type:        schema.TypeList,
-				Computed:    true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"id": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"name": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"connector_type": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"resource_id": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"resource_types": {
-							Type:     schema.TypeList,
-							Computed: true,
-							Elem: &schema.Schema{
-								Type: schema.TypeString,
-							},
-						},
-					},
-				},
+			"flavor": schema.StringAttribute{
+				MarkdownDescription: "Flavor of the stack component",
+				Computed:            true,
 			},
-			"connector_resource_id": {
-				Type:     schema.TypeString,
-				Computed: true,
+			"configuration": schema.MapAttribute{
+				MarkdownDescription: "Configuration for the stack component",
+				ElementType:         types.StringType,
+				Computed:            true,
 			},
-			"created": {
-				Description: "Timestamp when the component was created",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"connector_id": schema.StringAttribute{
+				MarkdownDescription: "ID of the service connector used by this component",
+				Computed:            true,
 			},
-			"updated": {
-				Description: "Timestamp when the component was last updated",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"connector_resource_id": schema.StringAttribute{
+				MarkdownDescription: "Resource ID used from the service connector",
+				Computed:            true,
+			},
+			"labels": schema.MapAttribute{
+				MarkdownDescription: "Labels for the stack component",
+				ElementType:         types.StringType,
+				Computed:            true,
+			},
+			"created": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the stack component was created",
+				Computed:            true,
+			},
+			"updated": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the stack component was last updated",
+				Computed:            true,
 			},
 		},
 	}
 }
 
-func dataSourceStackComponentRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*Client)
+func (d *StackComponentDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
 
-	id := d.Get("id").(string)
-	name := d.Get("name").(string)
-	componentType := d.Get("type").(string)
+	client, ok := req.ProviderData.(*Client)
 
-	var component *ComponentResponse = nil
-	var err error = nil
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Data Source Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
 
-	if id != "" {
-		component, err = c.GetComponent(ctx, id)
-		if err != nil {
-			return diag.FromErr(fmt.Errorf("error getting stack component: %v", err))
-		}
-	} else if name != "" && componentType != "" {
-		// List components with filters
+		return
+	}
+
+	d.client = client
+}
+
+func (d *StackComponentDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data StackComponentDataSourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Debug(ctx, "Reading stack component information")
+
+	var component *ComponentResponse
+	var err error
+
+	if !data.ID.IsNull() && data.ID.ValueString() != "" {
+		component, err = d.client.GetComponent(ctx, data.ID.ValueString())
+	} else if !data.Name.IsNull() && data.Name.ValueString() != "" {
 		params := &ListParams{
 			Filter: map[string]string{
-				"name": name,
-				"type": componentType,
+				"name": data.Name.ValueString(),
 			},
 		}
-
-		components, err := c.ListStackComponents(ctx, params)
-		if err != nil {
-			return diag.FromErr(fmt.Errorf("error listing stack components: %v", err))
+		if !data.Type.IsNull() && data.Type.ValueString() != "" {
+			params.Filter["type"] = data.Type.ValueString()
 		}
 
-		if len(components.Items) == 0 {
-			return diag.FromErr(fmt.Errorf("no component found with name %s and type %s",
-				name, componentType))
+		components, err := d.client.ListStackComponents(ctx, params)
+		if err == nil && len(components.Items) > 0 {
+			component = &components.Items[0]
 		}
-
-		component = &components.Items[0]
-
 	} else {
-		return diag.FromErr(fmt.Errorf("either 'id' or 'name' and 'type' must be set"))
+		resp.Diagnostics.AddError(
+			"Missing Required Attribute",
+			"Either 'id' or 'name' must be specified to identify the stack component",
+		)
+		return
+	}
+
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read stack component, got error: %s", err))
+		return
 	}
 
 	if component == nil {
-		// Component not found
-		d.SetId("")
-		return nil
+		resp.Diagnostics.AddError(
+			"Stack Component Not Found",
+			"No stack component found with the specified criteria",
+		)
+		return
 	}
 
-	d.SetId(component.ID)
-
-	if err := d.Set("name", component.Name); err != nil {
-		return diag.FromErr(err)
-	}
+	data.ID = types.StringValue(component.ID)
+	data.Name = types.StringValue(component.Name)
 
 	if component.Body != nil {
-		if err := d.Set("flavor", component.Body.Flavor); err != nil {
-			return diag.FromErr(err)
-		}
+		data.Type = types.StringValue(component.Body.Type)
+		data.Flavor = types.StringValue(component.Body.Flavor)
+		data.Created = types.StringValue(component.Body.Created)
+		data.Updated = types.StringValue(component.Body.Updated)
+	}
 
-		if err := d.Set("created", component.Body.Created); err != nil {
-			return diag.FromErr(err)
+	if component.Metadata != nil && component.Metadata.Configuration != nil {
+		configMap := make(map[string]attr.Value)
+		for k, v := range component.Metadata.Configuration {
+			// Always convert to string representation
+			// If it's already a string, use it as-is; otherwise convert to string
+			switch val := v.(type) {
+			case string:
+				configMap[k] = types.StringValue(val)
+			default:
+				configMap[k] = types.StringValue(fmt.Sprintf("%v", val))
+			}
 		}
+		configValue, diags := types.MapValue(types.StringType, configMap)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.Configuration = configValue
+		}
+	} else {
+		data.Configuration = types.MapNull(types.StringType)
+	}
 
-		if err := d.Set("updated", component.Body.Updated); err != nil {
-			return diag.FromErr(err)
+	if component.Metadata != nil && component.Metadata.Labels != nil {
+		labelMap := make(map[string]attr.Value)
+		for k, v := range component.Metadata.Labels {
+			labelMap[k] = types.StringValue(v)
 		}
+		labelValue, diags := types.MapValue(types.StringType, labelMap)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.Labels = labelValue
+		}
+	} else {
+		data.Labels = types.MapNull(types.StringType)
 	}
 
 	if component.Metadata != nil {
-		if err := d.Set("configuration", component.Metadata.Configuration); err != nil {
-			return diag.FromErr(err)
-		}
-
-		if err := d.Set("labels", component.Metadata.Labels); err != nil {
-			return diag.FromErr(err)
-		}
-
 		if component.Metadata.Connector != nil {
-
-			connectorType := ""
-			resourceId := ""
-			resourceTypes := []string{}
-
-			if component.Metadata.Connector.Body != nil {
-
-				// Unmarshal the connector type, which can be either a string or a struct
-				// Try to unmarshal as string
-				err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &connectorType)
-				if err != nil {
-					var typeStruct ServiceConnectorType
-					// Try to unmarshal as struct
-					if err := json.Unmarshal(component.Metadata.Connector.Body.ConnectorType, &typeStruct); err == nil {
-						connectorType = typeStruct.ConnectorType
-					}
-				}
-
-				if component.Metadata.Connector.Body.ResourceID != nil {
-					resourceId = *component.Metadata.Connector.Body.ResourceID
-				}
-
-				resourceTypes = component.Metadata.Connector.Body.ResourceTypes
-			}
-
-			connector := []interface{}{
-				map[string]interface{}{
-					"id":             component.Metadata.Connector.ID,
-					"name":           component.Metadata.Connector.Name,
-					"connector_type": connectorType,
-					"resource_id":    resourceId,
-					"resource_types": resourceTypes,
-				},
-			}
-			if err := d.Set("connector", connector); err != nil {
-				return diag.FromErr(err)
-			}
-		}
-
-		if component.Metadata.ConnectorResourceID != nil {
-			if err := d.Set("connector_resource_id", *component.Metadata.ConnectorResourceID); err != nil {
-				return diag.FromErr(err)
-			}
+			data.ConnectorID = types.StringValue(component.Metadata.Connector.ID)
 		} else {
-			if err := d.Set("connector_resource_id", ""); err != nil {
-				return diag.FromErr(err)
-			}
+			data.ConnectorID = types.StringNull()
 		}
-
+		if component.Metadata.ConnectorResourceID != nil {
+			data.ConnectorResourceID = types.StringValue(*component.Metadata.ConnectorResourceID)
+		} else {
+			data.ConnectorResourceID = types.StringNull()
+		}
 	}
 
-	return nil
+	tflog.Trace(ctx, "read a data source")
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

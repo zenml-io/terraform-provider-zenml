@@ -5,330 +5,588 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
-func resourceServiceConnector() *schema.Resource {
-	return &schema.Resource{
-		CreateContext: resourceServiceConnectorCreate,
-		ReadContext:   resourceServiceConnectorRead,
-		UpdateContext: resourceServiceConnectorUpdate,
-		DeleteContext: resourceServiceConnectorDelete,
+var _ resource.Resource = &ServiceConnectorResource{}
+var _ resource.ResourceWithImportState = &ServiceConnectorResource{}
+var _ resource.ResourceWithConfigValidators = &ServiceConnectorResource{}
 
-		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ValidateFunc: validation.StringLenBetween(1, 255),
-			},
-			"type": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringInSlice(validConnectorTypes, false),
-			},
-			"auth_method": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			"resource_type": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"resource_id": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"configuration": {
-				Type:     schema.TypeMap,
-				Required: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+func NewServiceConnectorResource() resource.Resource {
+	return &ServiceConnectorResource{}
+}
+
+type ServiceConnectorResource struct {
+	client *Client
+}
+
+type ServiceConnectorResourceModel struct {
+	ID            types.String   `tfsdk:"id"`
+	Name          types.String   `tfsdk:"name"`
+	Type          types.String   `tfsdk:"type"`
+	AuthMethod    types.String   `tfsdk:"auth_method"`
+	ResourceType  types.String   `tfsdk:"resource_type"`
+	ResourceID    types.String   `tfsdk:"resource_id"`
+	Configuration types.Map      `tfsdk:"configuration"`
+	Labels        types.Map      `tfsdk:"labels"`
+	ExpiresAt     types.String   `tfsdk:"expires_at"`
+	User          types.String   `tfsdk:"user"`
+	Created       types.String   `tfsdk:"created"`
+	Updated       types.String   `tfsdk:"updated"`
+	Verify        types.Bool     `tfsdk:"verify"`
+	Timeouts      timeouts.Value `tfsdk:"timeouts"`
+}
+
+func (r *ServiceConnectorResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_service_connector"
+}
+
+func (r *ServiceConnectorResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Service connector resource",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Service connector identifier",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"user": {
-				Type:     schema.TypeString,
-				Computed: true,
-				ForceNew: true,
-			},
-			"labels": {
-				Type:     schema.TypeMap,
-				Optional: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+			"name": schema.StringAttribute{
+				MarkdownDescription: "Name of the service connector",
+				Required:            true,
+				Validators: []validator.String{
+					stringvalidator.LengthBetween(1, 255),
 				},
 			},
-			"verify": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  true,
+			"type": schema.StringAttribute{
+				MarkdownDescription: "Type of the service connector",
+				Required:            true,
+				Validators: []validator.String{
+					stringvalidator.OneOf(validConnectorTypes...),
+				},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
-		},
-
-		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
-			return validateServiceConnector(d)
-		},
-
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
-		Timeouts: &schema.ResourceTimeout{
-			Create: schema.DefaultTimeout(5 * time.Minute),
-			Update: schema.DefaultTimeout(5 * time.Minute),
+			"auth_method": schema.StringAttribute{
+				MarkdownDescription: "Authentication method for the service connector",
+				Required:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"resource_type": schema.StringAttribute{
+				MarkdownDescription: "Resource type for the service connector",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"resource_id": schema.StringAttribute{
+				MarkdownDescription: "Resource ID for the service connector",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"configuration": schema.MapAttribute{
+				MarkdownDescription: "Configuration for the service connector",
+				ElementType:         types.StringType,
+				Optional:            true,
+			},
+			"labels": schema.MapAttribute{
+				MarkdownDescription: "Labels for the service connector",
+				ElementType:         types.StringType,
+				Optional:            true,
+			},
+			"expires_at": schema.StringAttribute{
+				MarkdownDescription: "Expiration time for the service connector (RFC3339 format)",
+				Computed:            true,
+			},
+			"verify": schema.BoolAttribute{
+				MarkdownDescription: "Whether to verify the service connector configuration before creating or updating it",
+				Optional:            true,
+			},
+			"user": schema.StringAttribute{
+				MarkdownDescription: "The owner of the service connector",
+				Computed:            true,
+			},
+			"created": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the service connector was created",
+				Computed:            true,
+			},
+			"updated": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the service connector was last updated",
+				Computed:            true,
+			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+				Create: true,
+				Update: true,
+			}),
 		},
 	}
 }
 
-func getConnectorRequest(ctx context.Context, d *schema.ResourceData, client *Client) (*ServiceConnectorRequest, error) {
-
-	// Get the current user
-	user, err := client.GetCurrentUser(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error getting current user: %w", err)
+func (r *ServiceConnectorResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		&serviceConnectorConfigValidator{},
 	}
-
-	connector := ServiceConnectorRequest{
-		User:          user.ID,
-		Name:          d.Get("name").(string),
-		ConnectorType: d.Get("type").(string),
-		AuthMethod:    d.Get("auth_method").(string),
-	}
-
-	// Handle configuration
-	if v, ok := d.GetOk("configuration"); ok {
-		configMap := make(map[string]interface{})
-		for k, v := range v.(map[string]interface{}) {
-			configMap[k] = v
-		}
-		connector.Configuration = configMap
-	}
-
-	// Handle resource type
-	if v, ok := d.GetOk("resource_type"); ok {
-		resourceType := v.(string)
-		resourceTypes := []string{resourceType}
-		connector.ResourceTypes = resourceTypes
-	} else {
-		connector.ResourceTypes = []string{}
-	}
-
-	// Handle resource ID
-	if v, ok := d.GetOk("resource_id"); ok {
-		resourceID := v.(string)
-		connector.ResourceID = &resourceID
-	}
-
-	// Handle labels
-	if v, ok := d.GetOk("labels"); ok {
-		labelsMap := make(map[string]string)
-		for k, v := range v.(map[string]interface{}) {
-			labelsMap[k] = v.(string)
-		}
-		connector.Labels = labelsMap
-	}
-
-	return &connector, nil
 }
 
-func resourceServiceConnectorCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+type serviceConnectorConfigValidator struct{}
 
-	connector, err := getConnectorRequest(ctx, d, client)
+func (v serviceConnectorConfigValidator) Description(ctx context.Context) string {
+	return "Validates service connector configuration"
+}
 
-	if err != nil {
-		return diag.FromErr(err)
+func (v serviceConnectorConfigValidator) MarkdownDescription(ctx context.Context) string {
+	return "Validates service connector configuration"
+}
+
+func (v serviceConnectorConfigValidator) ValidateResource(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data ServiceConnectorResourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		if d.Get("verify").(bool) {
-			verify, err := client.VerifyServiceConnector(ctx, *connector)
-			if err != nil {
-				return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
-			}
+	connectorType := data.Type.ValueString()
+	authMethod := data.AuthMethod.ValueString()
 
-			if verify.Error != nil {
-				return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *verify.Error))
+	if !data.Type.IsUnknown() && connectorType != "" {
+		validType := false
+		for _, t := range validConnectorTypes {
+			if t == connectorType {
+				validType = true
+				break
 			}
 		}
-
-		resp, err := client.CreateServiceConnector(ctx, *connector)
-		if err != nil {
-			return retry.NonRetryableError(fmt.Errorf("Error creating service connector: %s", err))
+		if !validType {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("type"),
+				"Invalid connector type",
+				fmt.Sprintf("Invalid connector type %q. Valid types are: %s",
+					connectorType, strings.Join(validConnectorTypes, ", ")),
+			)
+			return
 		}
+	}
 
-		d.SetId(resp.ID)
+	if !data.AuthMethod.IsUnknown() && authMethod != "" {
+		if methods, ok := validAuthMethods[connectorType]; ok {
+			validMethod := false
+			for _, m := range methods {
+				if m == authMethod {
+					validMethod = true
+					break
+				}
+			}
+			if !validMethod {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("auth_method"),
+					"Invalid auth method",
+					fmt.Sprintf("Invalid auth_method %q for connector type %q. Valid methods are: %s",
+						authMethod, connectorType,
+						strings.Join(validAuthMethods[connectorType], ", ")),
+				)
+			}
+		}
+	}
 
+	if !data.ResourceType.IsNull() && data.ResourceType.ValueString() != "" {
+		validTypes := validResourceTypes[connectorType]
+		resourceType := data.ResourceType.ValueString()
+		valid := false
+		for _, t := range validTypes {
+			if t == resourceType {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("resource_type"),
+				"Invalid resource type",
+				fmt.Sprintf("Invalid resource type %q for connector type %q. Valid types are: %s",
+					resourceType, connectorType, strings.Join(validTypes, ", ")),
+			)
+		}
+	}
+
+	// NOTE: we intentionally omit validating the configuration here
+	// for two reasons:
+	// 1. The configuration can be derived from resources and data
+	//    sources that are not available during plan time.
+	// 2. The configuration are validated by the ZenML server
+	//    when the connector is validated / created and we don't want to
+	//    duplicate that logic here.
+}
+
+func (r *ServiceConnectorResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
+
+	client, ok := req.ProviderData.(*Client)
+
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+
+		return
+	}
+
+	r.client = client
+}
+
+func (r *ServiceConnectorResource) buildServiceConnectorRequest(
+	ctx context.Context,
+	data *ServiceConnectorResourceModel,
+	diags *diag.Diagnostics,
+) *ServiceConnectorRequest {
+	user, err := r.client.GetCurrentUser(ctx)
+	if err != nil {
+		diags.AddError(
+			"Client Error",
+			fmt.Sprintf("Unable to get current user, got error: %s", err),
+		)
 		return nil
-
-	})
-
-	if err != nil {
-		return diag.FromErr(err)
 	}
 
-	return resourceServiceConnectorRead(ctx, d, m)
+	configuration := make(map[string]interface{})
+	if !data.Configuration.IsNull() {
+		configElements := make(map[string]types.String, len(data.Configuration.Elements()))
+		diags.Append(data.Configuration.ElementsAs(ctx, &configElements, false)...)
+		if diags.HasError() {
+			return nil
+		}
+
+		for k, v := range configElements {
+			configuration[k] = v.ValueString()
+		}
+	}
+
+	labels := make(map[string]string)
+	if !data.Labels.IsNull() {
+		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
+		diags.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
+		if diags.HasError() {
+			return nil
+		}
+
+		for k, v := range labelElements {
+			labels[k] = v.ValueString()
+		}
+	}
+
+	resourceTypes := []string{}
+	if !data.ResourceType.IsNull() && data.ResourceType.ValueString() != "" {
+		resourceTypes = []string{data.ResourceType.ValueString()}
+	}
+
+	connectorReq := &ServiceConnectorRequest{
+		User:          user.ID,
+		Name:          data.Name.ValueString(),
+		ConnectorType: data.Type.ValueString(),
+		AuthMethod:    data.AuthMethod.ValueString(),
+		ResourceTypes: resourceTypes,
+		Configuration: configuration,
+		Labels:        labels,
+	}
+
+	if !data.ResourceID.IsNull() && data.ResourceID.ValueString() != "" {
+		resourceID := data.ResourceID.ValueString()
+		connectorReq.ResourceID = &resourceID
+	}
+
+	return connectorReq
 }
 
-func resourceServiceConnectorRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *ServiceConnectorResource) populateServiceConnectorModel(
+	ctx context.Context,
+	connector *ServiceConnectorResponse,
+	data *ServiceConnectorResourceModel,
+	diags *diag.Diagnostics,
+) {
+	data.ID = types.StringValue(connector.ID)
+	data.Name = types.StringValue(connector.Name)
 
-	connector, err := client.GetServiceConnector(ctx, d.Id())
+	if connector.Body != nil {
+		var connectorType string
+		if err := json.Unmarshal(connector.Body.ConnectorType, &connectorType); err != nil {
+			var connectorTypeObj struct {
+				ConnectorType string `json:"connector_type"`
+			}
+			if err := json.Unmarshal(connector.Body.ConnectorType, &connectorTypeObj); err == nil {
+				connectorType = connectorTypeObj.ConnectorType
+			}
+		}
+		if connectorType != "" {
+			data.Type = types.StringValue(connectorType)
+		}
+
+		data.AuthMethod = types.StringValue(connector.Body.AuthMethod)
+
+		if len(connector.Body.ResourceTypes) == 1 {
+			data.ResourceType = types.StringValue(connector.Body.ResourceTypes[0])
+		}
+
+		if connector.Body.ResourceID != nil {
+			data.ResourceID = types.StringValue(*connector.Body.ResourceID)
+		}
+
+		if connector.Body.ExpiresAt != nil {
+			data.ExpiresAt = types.StringValue(*connector.Body.ExpiresAt)
+		} else {
+			data.ExpiresAt = types.StringNull()
+		}
+
+		if connector.Body.User != nil {
+			data.User = types.StringValue(connector.Body.User.ID)
+		} else {
+			data.User = types.StringNull()
+		}
+
+		data.Created = types.StringValue(connector.Body.Created)
+		data.Updated = types.StringValue(connector.Body.Updated)
+	}
+
+	if connector.Metadata != nil && connector.Metadata.Configuration != nil {
+		configMap := make(map[string]attr.Value)
+		for k, v := range connector.Metadata.Configuration {
+			switch val := v.(type) {
+			case string:
+				configMap[k] = types.StringValue(val)
+			default:
+				configMap[k] = types.StringValue(fmt.Sprintf("%v", val))
+			}
+		}
+		configValue, configDiags := types.MapValue(types.StringType, configMap)
+		diags.Append(configDiags...)
+		if !diags.HasError() {
+			data.Configuration = configValue
+		}
+	}
+
+	if connector.Metadata != nil && connector.Metadata.Labels != nil {
+		labelMap := make(map[string]attr.Value)
+		for k, v := range connector.Metadata.Labels {
+			labelMap[k] = types.StringValue(v)
+		}
+		labelValue, labelDiags := types.MapValue(types.StringType, labelMap)
+		diags.Append(labelDiags...)
+		if !diags.HasError() {
+			data.Labels = labelValue
+		}
+	}
+}
+
+func (r *ServiceConnectorResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data ServiceConnectorResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Resolve timeout for verification.
+	createTimeout, tDiags := data.Timeouts.Create(ctx, 5*time.Minute)
+	resp.Diagnostics.Append(tDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	connectorReq := r.buildServiceConnectorRequest(ctx, &data, &resp.Diagnostics)
+	if connectorReq == nil {
+		return
+	}
+
+	verify := true
+	if !data.Verify.IsNull() {
+		verify = data.Verify.ValueBool()
+	}
+
+	if verify {
+		retryErr := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
+			validation, err := r.client.VerifyServiceConnector(ctx, *connectorReq)
+			if err != nil {
+				return retry.NonRetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
+			}
+			if validation.Error != nil {
+				return retry.RetryableError(fmt.Errorf("Error verifying service connector configuration: %s", *validation.Error))
+			}
+			return nil
+		})
+		if retryErr != nil {
+			resp.Diagnostics.AddError("Verification Error", retryErr.Error())
+			return
+		}
+	}
+
+	tflog.Trace(ctx, "creating service connector")
+
+	connector, err := r.client.CreateServiceConnector(ctx, *connectorReq)
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("error getting service connector: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create service connector, got error: %s", err))
+		return
+	}
+
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Trace(ctx, "created a service connector")
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *ServiceConnectorResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data ServiceConnectorResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	connector, err := r.client.GetServiceConnector(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error",
+			fmt.Sprintf("Unable to read service connector, got error: %s", err))
+		return
 	}
 
 	if connector == nil {
-		d.SetId("")
-		return nil
+		// Connector was deleted outside of Terraform
+		resp.State.RemoveResource(ctx)
+		return
 	}
 
-	d.Set("name", connector.Name)
-
-	if connector.Body != nil {
-
-		if connector.Body.ResourceID != nil {
-			d.Set("resource_id", connector.Body.ResourceID)
-		}
-
-		connector_type := ""
-
-		// Unmarshal the connector type, which can be either a string or a struct
-		// Try to unmarshal as string
-		err = json.Unmarshal(connector.Body.ConnectorType, &connector_type)
-		if err != nil {
-			var type_struct ServiceConnectorType
-			// Try to unmarshal as struct
-			if err = json.Unmarshal(connector.Body.ConnectorType, &type_struct); err == nil {
-				connector_type = type_struct.ConnectorType
-			} else {
-				return diag.FromErr(fmt.Errorf("error unmarshalling connector type: %s", err))
-			}
-
-		}
-		d.Set("type", connector_type)
-
-		d.Set("auth_method", connector.Body.AuthMethod)
-
-		// If there are multiple resource types, leave the resource_type field empty
-		if len(connector.Body.ResourceTypes) == 1 {
-			d.Set("resource_type", connector.Body.ResourceTypes[0])
-		} else {
-			d.Set("resource_type", "")
-		}
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	if connector.Metadata != nil {
-		d.Set("configuration", connector.Metadata.Configuration)
-		d.Set("labels", connector.Metadata.Labels)
-	}
-
-	return nil
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceServiceConnectorUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *ServiceConnectorResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data ServiceConnectorResourceModel
 
-	connector, err := getConnectorRequest(ctx, d, client)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
-	if err != nil {
-		return diag.FromErr(err)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	err = retry.RetryContext(ctx, d.Timeout(schema.TimeoutCreate)-time.Minute, func() *retry.RetryError {
-		if d.Get("verify").(bool) {
-			resources, err := client.VerifyServiceConnector(ctx, *connector)
+	// Resolve timeout for verification.
+	updateTimeout, tDiags := data.Timeouts.Update(ctx, 5*time.Minute)
+	resp.Diagnostics.Append(tDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	connectorReq := r.buildServiceConnectorRequest(ctx, &data, &resp.Diagnostics)
+	if connectorReq == nil {
+		return
+	}
+
+	verify := true
+	if !data.Verify.IsNull() {
+		verify = data.Verify.ValueBool()
+	}
+
+	if verify {
+		retryErr := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
+			validation, err := r.client.VerifyServiceConnector(ctx, *connectorReq)
 			if err != nil {
-				return retry.NonRetryableError(fmt.Errorf("Error verifying service connector: %s", err))
+				return retry.NonRetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
 			}
-
-			if resources.Error != nil {
-				return retry.RetryableError(fmt.Errorf("error verifying service connector: %s", *resources.Error))
+			if validation.Error != nil {
+				return retry.RetryableError(fmt.Errorf("Error verifying service connector configuration: %s", *validation.Error))
 			}
+			return nil
+		})
+		if retryErr != nil {
+			resp.Diagnostics.AddError("Verification Error", retryErr.Error())
+			return
 		}
-
-		update := ServiceConnectorUpdate{}
-
-		if d.HasChange("name") {
-			name := d.Get("name").(string)
-			update.Name = &name
-		}
-
-		// The `configuration` field represents a full valid configuration update,
-		// not just a partial update. If it is set (i.e. not None) in the update,
-		// the value will replace the existing configuration value. For this
-		// reason, we always include the configuration in the update request.
-
-		// Handle configuration
-		configMap := make(map[string]interface{})
-		if v, ok := d.GetOk("configuration"); ok {
-			for k, v := range v.(map[string]interface{}) {
-				configMap[k] = v
-			}
-		}
-		update.Configuration = configMap
-
-		// The `labels` field is also a full labels update: if set (i.e. not
-		// `None`), all existing labels are removed and replaced by the new labels
-		// in the update.
-
-		labelsMap := make(map[string]string)
-		if d.HasChange("labels") {
-			for k, v := range d.Get("labels").(map[string]interface{}) {
-				labelsMap[k] = v.(string)
-			}
-		}
-		update.Labels = labelsMap
-
-		// The `resource_id` field value is also a full replacement value: if not
-		// set in the request, the resource ID is removed from the service
-		// connector.
-		if v, ok := d.GetOk("resource_id"); ok {
-			resourceID := v.(string)
-			update.ResourceID = &resourceID
-		} else {
-			update.ResourceID = nil
-		}
-
-		// Handle resource type
-		if v, ok := d.GetOk("resource_type"); ok {
-			resourceType := v.(string)
-			resourceTypes := []string{resourceType}
-			update.ResourceTypes = resourceTypes
-		} else {
-			update.ResourceTypes = []string{}
-		}
-
-		_, err = client.UpdateServiceConnector(ctx, d.Id(), update)
-		if err != nil {
-			return retry.NonRetryableError(fmt.Errorf("Error updating service connector: %s", err))
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return diag.FromErr(err)
 	}
 
-	return resourceServiceConnectorRead(ctx, d, m)
+	updateReq := ServiceConnectorUpdate{
+		Configuration: connectorReq.Configuration,
+		Labels:        connectorReq.Labels,
+		ResourceTypes: connectorReq.ResourceTypes,
+	}
+
+	if !data.Name.IsNull() {
+		name := data.Name.ValueString()
+		updateReq.Name = &name
+	}
+
+	if connectorReq.ResourceID != nil {
+		updateReq.ResourceID = connectorReq.ResourceID
+	}
+
+	tflog.Trace(ctx, "updating service connector")
+
+	connector, err := r.client.UpdateServiceConnector(ctx, data.ID.ValueString(), updateReq)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error",
+			fmt.Sprintf("Unable to update service connector, got error: %s", err))
+		return
+	}
+
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceServiceConnectorDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *ServiceConnectorResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data ServiceConnectorResourceModel
 
-	err := client.DeleteServiceConnector(ctx, d.Id())
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error deleting service connector: %s", err))
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	d.SetId("")
-	return nil
+	tflog.Trace(ctx, "deleting service connector")
+
+	err := r.client.DeleteServiceConnector(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete service connector, got error: %s", err))
+		return
+	}
+}
+
+func (r *ServiceConnectorResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

@@ -6,188 +6,388 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-func resourceStack() *schema.Resource {
-	return &schema.Resource{
-		CreateContext: resourceStackCreate,
-		ReadContext:   resourceStackRead,
-		UpdateContext: resourceStackUpdate,
-		DeleteContext: resourceStackDelete,
+var _ resource.Resource = &StackResource{}
+var _ resource.ResourceWithImportState = &StackResource{}
+var _ resource.ResourceWithConfigValidators = &StackResource{}
 
-		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"components": {
-				Type:     schema.TypeMap,
-				Required: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+func NewStackResource() resource.Resource {
+	return &StackResource{}
+}
+
+type StackResource struct {
+	client *Client
+}
+
+type StackResourceModel struct {
+	ID         types.String `tfsdk:"id"`
+	Name       types.String `tfsdk:"name"`
+	Components types.Map    `tfsdk:"components"`
+	Labels     types.Map    `tfsdk:"labels"`
+}
+
+func (r *StackResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_stack"
+}
+
+func (r *StackResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Stack resource",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Stack identifier",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
-				Description: "Map of component types to component IDs",
-				// We cannot delete components while they are still in use
-				// by a stack, so we need to force new stacks when components
-				// are changed.
-				ForceNew: true,
 			},
-			"labels": {
-				Type:     schema.TypeMap,
-				Optional: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+			"name": schema.StringAttribute{
+				MarkdownDescription: "Name of the stack",
+				Required:            true,
+			},
+			"components": schema.MapAttribute{
+				MarkdownDescription: "Map of component types to component IDs",
+				ElementType:         types.StringType,
+				Required:            true,
+				PlanModifiers: []planmodifier.Map{
+					mapplanmodifier.RequiresReplace(),
 				},
+			},
+			"labels": schema.MapAttribute{
+				MarkdownDescription: "Labels for the stack",
+				ElementType:         types.StringType,
+				Optional:            true,
 			},
 		},
+	}
+}
 
-		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, m interface{}) error {
-			// Validate component types
-			if v, ok := d.GetOk("components"); ok {
-				components := v.(map[string]interface{})
-				for compType := range components {
-					valid := false
-					for _, validType := range validComponentTypes {
-						if compType == validType {
-							valid = true
-							break
-						}
-					}
-					if !valid {
-						return fmt.Errorf(
-							"invalid component type %q. Valid types are: %s",
-							compType, strings.Join(validComponentTypes, ", "))
+func (r *StackResource) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		&stackConfigValidator{},
+	}
+}
+
+type stackConfigValidator struct{}
+
+func (v stackConfigValidator) Description(ctx context.Context) string {
+	return "Validates stack component types and ensures component IDs are non-null and non-empty"
+}
+
+func (v stackConfigValidator) MarkdownDescription(ctx context.Context) string {
+	return "Validates stack component types and ensures component IDs are non-null and non-empty"
+}
+
+func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data StackResourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !data.Components.IsNull() && !data.Components.IsUnknown() {
+		componentElements := make(map[string]types.String, len(data.Components.Elements()))
+		resp.Diagnostics.Append(data.Components.ElementsAs(ctx, &componentElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		for compType, _ := range componentElements {
+			valid := false
+			for _, validType := range validComponentTypes {
+				if compType == validType {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("components").AtMapKey(compType),
+					"Invalid component type",
+					fmt.Sprintf("Invalid component type %q. Valid types are: %s", compType, strings.Join(validComponentTypes, ", ")),
+				)
+				continue
+			}
+		}
+	}
+}
+
+func (r *StackResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
+
+	client, ok := req.ProviderData.(*Client)
+
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+
+		return
+	}
+
+	r.client = client
+}
+
+func (r *StackResource) populateStackModel(
+	ctx context.Context,
+	stack *StackResponse,
+	data *StackResourceModel,
+	diags *diag.Diagnostics,
+) {
+	data.ID = types.StringValue(stack.ID)
+	data.Name = types.StringValue(stack.Name)
+
+	if stack.Metadata != nil {
+		if stack.Metadata.Components != nil {
+			componentMap := make(map[string]attr.Value)
+
+			// First, preserve null components from existing state
+			if !data.Components.IsNull() && !data.Components.IsUnknown() {
+				existingComponents := make(map[string]types.String)
+				diags.Append(
+					data.Components.ElementsAs(
+						ctx,
+						&existingComponents,
+						false,
+					)...,
+				)
+				if diags.HasError() {
+					return
+				}
+
+				// Keep only the null entries
+				for compType, compValue := range existingComponents {
+					if compValue.IsNull() {
+						componentMap[compType] = types.StringNull()
 					}
 				}
 			}
-			return nil
-		},
 
-		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
-		},
+			// Apply components from API response on top of nulls
+			for compType, compList := range stack.Metadata.Components {
+				if len(compList) > 0 {
+					componentMap[compType] = types.StringValue(
+						compList[0].ID,
+					)
+				}
+			}
+
+			componentValue, componentDiags := types.MapValue(
+				types.StringType,
+				componentMap,
+			)
+			diags.Append(componentDiags...)
+			if !diags.HasError() {
+				data.Components = componentValue
+			}
+		}
+
+		if stack.Metadata.Labels != nil {
+			labelMap := make(map[string]attr.Value)
+			for k, v := range stack.Metadata.Labels {
+				labelMap[k] = types.StringValue(v)
+			}
+			labelValue, labelDiags := types.MapValue(
+				types.StringType,
+				labelMap,
+			)
+			diags.Append(labelDiags...)
+			if !diags.HasError() {
+				data.Labels = labelValue
+			}
+		}
 	}
 }
 
-func resourceStackCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *StackResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data StackResourceModel
 
-	stack := StackRequest{
-		Name: d.Get("name").(string),
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	// Handle components
-	if v, ok := d.GetOk("components"); ok {
-		components := make(map[string][]string)
-		for k, v := range v.(map[string]interface{}) {
-			// Convert single ID to array of IDs since API expects array
-			components[k] = []string{v.(string)}
+	components := make(map[string][]string)
+	if !data.Components.IsNull() {
+		componentElements := make(map[string]types.String, len(data.Components.Elements()))
+		resp.Diagnostics.Append(data.Components.ElementsAs(ctx, &componentElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
 		}
-		stack.Components = components
-	}
 
-	// Handle labels
-	if v, ok := d.GetOk("labels"); ok {
-		labels := make(map[string]string)
-		for k, v := range v.(map[string]interface{}) {
-			labels[k] = v.(string)
+		for compType, compID := range componentElements {
+			if !compID.IsNull() && !compID.IsUnknown() && compID.ValueString() != "" {
+				components[compType] = []string{compID.ValueString()}
+			}
 		}
-		stack.Labels = labels
 	}
 
-	resp, err := client.CreateStack(ctx, stack)
+	labels := make(map[string]string)
+	if !data.Labels.IsNull() {
+		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
+		resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		for k, v := range labelElements {
+			labels[k] = v.ValueString()
+		}
+	}
+
+	stackReq := StackRequest{
+		Name:       data.Name.ValueString(),
+		Components: components,
+		Labels:     labels,
+	}
+
+	tflog.Trace(ctx, "creating stack")
+
+	stack, err := r.client.CreateStack(ctx, stackReq)
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("error creating stack: %w", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create stack, got error: %s", err))
+		return
 	}
 
-	d.SetId(resp.ID)
-	return resourceStackRead(ctx, d, m)
+	r.populateStackModel(ctx, stack, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Trace(ctx, "created a stack")
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceStackRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *StackResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data StackResourceModel
 
-	stack, err := client.GetStack(ctx, d.Id())
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error getting stack: %w", err))
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
+
+	stack, err := r.client.GetStack(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read stack, got error: %s", err))
+		return
+	}
+
 	if stack == nil {
-		// Handle 404 by removing from state
-		d.SetId("")
-		return nil
+		// Stack was deleted outside of Terraform
+		resp.State.RemoveResource(ctx)
+		return
 	}
 
-	d.Set("name", stack.Name)
-
-	// Handle components - flatten the array structure to single IDs
-	if stack.Metadata != nil && stack.Metadata.Components != nil {
-		components := make(map[string]string)
-		for compType, compArray := range stack.Metadata.Components {
-			if len(compArray) > 0 {
-				// Take first component ID for each type
-				components[compType] = compArray[0].ID
-			}
-		}
-		d.Set("components", components)
+	r.populateStackModel(ctx, stack, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	// Handle labels if present
-	if stack.Metadata != nil && stack.Metadata.Labels != nil {
-
-		d.Set("labels", stack.Metadata.Labels)
-	}
-
-	return nil
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceStackUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *StackResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data StackResourceModel
 
-	name := d.Get("name").(string)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
-	update := StackUpdate{
-		Name: &name,
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	// Handle components
-	if d.HasChange("components") {
-		components := make(map[string][]string)
-		for k, v := range d.Get("components").(map[string]interface{}) {
-			// Convert single ID to array of IDs
-			components[k] = []string{v.(string)}
+	components := make(map[string][]string)
+	if !data.Components.IsNull() {
+		componentElements := make(map[string]types.String, len(data.Components.Elements()))
+		resp.Diagnostics.Append(data.Components.ElementsAs(ctx, &componentElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
 		}
-		update.Components = components
-	}
 
-	// Handle labels
-	if d.HasChange("labels") {
-		if v, ok := d.GetOk("labels"); ok {
-			labels := make(map[string]string)
-			for k, v := range v.(map[string]interface{}) {
-				labels[k] = v.(string)
+		for compType, compID := range componentElements {
+			if !compID.IsNull() && !compID.IsUnknown() && compID.ValueString() != "" {
+				components[compType] = []string{compID.ValueString()}
 			}
-			update.Labels = labels
 		}
 	}
 
-	_, err := client.UpdateStack(ctx, d.Id(), update)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error updating stack: %w", err))
+	labels := make(map[string]string)
+	if !data.Labels.IsNull() {
+		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
+		resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		for k, v := range labelElements {
+			labels[k] = v.ValueString()
+		}
 	}
 
-	return resourceStackRead(ctx, d, m)
+	updateReq := StackUpdate{
+		Components: components,
+		Labels:     labels,
+	}
+
+	if !data.Name.IsNull() {
+		name := data.Name.ValueString()
+		updateReq.Name = &name
+	}
+
+	tflog.Trace(ctx, "updating stack")
+
+	stack, err := r.client.UpdateStack(ctx, data.ID.ValueString(), updateReq)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update stack, got error: %s", err))
+		return
+	}
+
+	r.populateStackModel(ctx, stack, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceStackDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *StackResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data StackResourceModel
 
-	err := client.DeleteStack(ctx, d.Id())
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error deleting stack: %w", err))
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	d.SetId("")
-	return nil
+	tflog.Trace(ctx, "deleting stack")
+
+	err := r.client.DeleteStack(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete stack, got error: %s", err))
+		return
+	}
+}
+
+func (r *StackResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

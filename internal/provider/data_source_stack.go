@@ -3,174 +3,218 @@ package provider
 import (
 	"context"
 	"fmt"
-	"sort"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-func dataSourceStack() *schema.Resource {
-	return &schema.Resource{
-		Description: "Data source for ZenML stacks",
-		ReadContext: dataSourceStackRead,
-		Schema: map[string]*schema.Schema{
-			"id": {
-				Description: "ID of the stack",
-				Type:        schema.TypeString,
-				Optional:    true,
+var _ datasource.DataSource = &StackDataSource{}
+
+func NewStackDataSource() datasource.DataSource {
+	return &StackDataSource{}
+}
+
+type StackDataSource struct {
+	client *Client
+}
+
+type StackDataSourceModel struct {
+	ID         types.String `tfsdk:"id"`
+	Name       types.String `tfsdk:"name"`
+	Components types.List   `tfsdk:"components"`
+	Labels     types.Map    `tfsdk:"labels"`
+	Created    types.String `tfsdk:"created"`
+	Updated    types.String `tfsdk:"updated"`
+}
+
+type StackComponentModel struct {
+	ID     types.String `tfsdk:"id"`
+	Name   types.String `tfsdk:"name"`
+	Type   types.String `tfsdk:"type"`
+	Flavor types.String `tfsdk:"flavor"`
+}
+
+func (d *StackDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_stack"
+}
+
+func (d *StackDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Data source for ZenML stacks",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				MarkdownDescription: "ID of the stack",
+				Optional:            true,
 			},
-			"name": {
-				Description: "Name of the stack",
-				Type:        schema.TypeString,
-				Optional:    true,
+			"name": schema.StringAttribute{
+				MarkdownDescription: "Name of the stack",
+				Optional:            true,
 			},
-			"components": {
-				Description: "Components configured in the stack",
-				Type:        schema.TypeList,
-				Computed:    true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"id": {
-							Type:     schema.TypeString,
-							Computed: true,
+			"components": schema.ListNestedAttribute{
+				MarkdownDescription: "Components configured in the stack",
+				Computed:            true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"id": schema.StringAttribute{
+							MarkdownDescription: "Component ID",
+							Computed:            true,
 						},
-						"name": {
-							Type:     schema.TypeString,
-							Computed: true,
+						"name": schema.StringAttribute{
+							MarkdownDescription: "Component name",
+							Computed:            true,
 						},
-						"type": {
-							Type:     schema.TypeString,
-							Computed: true,
+						"type": schema.StringAttribute{
+							MarkdownDescription: "Component type",
+							Computed:            true,
 						},
-						"flavor": {
-							Type:     schema.TypeString,
-							Computed: true,
+						"flavor": schema.StringAttribute{
+							MarkdownDescription: "Component flavor",
+							Computed:            true,
 						},
 					},
 				},
 			},
-			"labels": {
-				Description: "Labels associated with the stack",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+			"labels": schema.MapAttribute{
+				MarkdownDescription: "Labels for the stack",
+				ElementType:         types.StringType,
+				Computed:            true,
 			},
-			"created": {
-				Description: "Timestamp when the stack was created",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"created": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the stack was created",
+				Computed:            true,
 			},
-			"updated": {
-				Description: "Timestamp when the stack was last updated",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"updated": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the stack was last updated",
+				Computed:            true,
 			},
 		},
 	}
 }
 
-func dataSourceStackRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*Client)
+func (d *StackDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
 
-	id := d.Get("id").(string)
-	name := d.Get("name").(string)
+	client, ok := req.ProviderData.(*Client)
 
-	var stack *StackResponse = nil
-	var err error = nil
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Data Source Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
 
-	if id != "" {
-		// Get stack by ID
-		stack, err = c.GetStack(ctx, id)
-		if err != nil {
-			return diag.FromErr(fmt.Errorf("error getting stack: %v", err))
-		}
-	} else if name != "" {
-		// List stacks with filter to find by name
+		return
+	}
+
+	d.client = client
+}
+
+func (d *StackDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data StackDataSourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Debug(ctx, "Reading stack information")
+
+	var stack *StackResponse
+	var err error
+
+	if !data.ID.IsNull() && data.ID.ValueString() != "" {
+		stack, err = d.client.GetStack(ctx, data.ID.ValueString())
+	} else if !data.Name.IsNull() && data.Name.ValueString() != "" {
 		params := &ListParams{
 			Filter: map[string]string{
-				"name": name,
+				"name": data.Name.ValueString(),
 			},
 		}
-
-		stacks, err := c.ListStacks(ctx, params)
-		if err != nil {
-			return diag.FromErr(fmt.Errorf("error listing stacks: %v", err))
+		stacks, err := d.client.ListStacks(ctx, params)
+		if err == nil && len(stacks.Items) > 0 {
+			stack = &stacks.Items[0]
 		}
-
-		if len(stacks.Items) == 0 {
-			return diag.FromErr(fmt.Errorf("no stack found with name %s", name))
-		}
-
-		stack = &stacks.Items[0]
 	} else {
-		return diag.FromErr(fmt.Errorf("either 'id' or 'name' must be set"))
+		resp.Diagnostics.AddError(
+			"Missing Required Attribute",
+			"Either 'id' or 'name' must be specified to identify the stack",
+		)
+		return
+	}
+
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read stack, got error: %s", err))
+		return
 	}
 
 	if stack == nil {
-		// Stack not found
-		d.SetId("")
-		return nil
+		resp.Diagnostics.AddError(
+			"Stack Not Found",
+			"No stack found with the specified criteria",
+		)
+		return
 	}
 
-	d.SetId(stack.ID)
-
-	if err := d.Set("name", stack.Name); err != nil {
-		return diag.FromErr(err)
-	}
-
-	if stack.Metadata != nil {
-
-		if err := d.Set("labels", stack.Metadata.Labels); err != nil {
-			return diag.FromErr(err)
-		}
-
-		// Handle components
-		var components []map[string]string
-
-		// We need to keep a sorted list of components, otherwise the order
-		// of components will change on each read
-
-		// Extract keys
-		keys := make([]string, 0, len(stack.Metadata.Components))
-		for key, _ := range stack.Metadata.Components {
-			keys = append(keys, key)
-		}
-
-		// Sort keys
-		sort.Strings(keys)
-
-		// Iterate over sorted keys
-		for _, key := range keys {
-			componentList := stack.Metadata.Components[key]
-			var componentData map[string]string
-			for _, component := range componentList {
-				componentData = map[string]string{
-					"id":     component.ID,
-					"name":   component.Name,
-					"type":   component.Body.Type,
-					"flavor": component.Body.Flavor,
-				}
-				// Only take the first component of each type
-				break
-			}
-			components = append(components, componentData)
-		}
-		if err := d.Set("components", components); err != nil {
-			return diag.FromErr(err)
-		}
-	}
+	data.ID = types.StringValue(stack.ID)
+	data.Name = types.StringValue(stack.Name)
 
 	if stack.Body != nil {
-		if err := d.Set("created", stack.Body.Created); err != nil {
-			return diag.FromErr(err)
-		}
+		data.Created = types.StringValue(stack.Body.Created)
+		data.Updated = types.StringValue(stack.Body.Updated)
+	}
 
-		if err := d.Set("updated", stack.Body.Updated); err != nil {
-			return diag.FromErr(err)
+	var components []StackComponentModel
+	if stack.Metadata != nil && stack.Metadata.Components != nil {
+		for _, compList := range stack.Metadata.Components {
+			for _, comp := range compList {
+				component := StackComponentModel{
+					ID:   types.StringValue(comp.ID),
+					Name: types.StringValue(comp.Name),
+				}
+				if comp.Body != nil {
+					component.Type = types.StringValue(comp.Body.Type)
+					component.Flavor = types.StringValue(comp.Body.Flavor)
+				}
+				components = append(components, component)
+			}
 		}
 	}
 
-	return nil
+	componentsList, diags := types.ListValueFrom(ctx, types.ObjectType{
+		AttrTypes: map[string]attr.Type{
+			"id":     types.StringType,
+			"name":   types.StringType,
+			"type":   types.StringType,
+			"flavor": types.StringType,
+		},
+	}, components)
+	resp.Diagnostics.Append(diags...)
+	if !resp.Diagnostics.HasError() {
+		data.Components = componentsList
+	}
+
+	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+		labelMap := make(map[string]attr.Value)
+		for k, v := range stack.Metadata.Labels {
+			labelMap[k] = types.StringValue(v)
+		}
+		labelValue, diags := types.MapValue(types.StringType, labelMap)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.Labels = labelValue
+		}
+	} else {
+		data.Labels = types.MapNull(types.StringType)
+	}
+
+	tflog.Trace(ctx, "read a data source")
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
