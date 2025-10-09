@@ -329,6 +329,7 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 	connector *ServiceConnectorResponse,
 	data *ServiceConnectorResourceModel,
 	diags *diag.Diagnostics,
+	updateConfiguration bool,
 ) {
 	data.ID = types.StringValue(connector.ID)
 	data.Name = types.StringValue(connector.Name)
@@ -375,63 +376,25 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 
 	if connector.Metadata != nil {
 		if connector.Metadata.Configuration != nil {
-			// Normalize server configuration to a string map
-			serverConfig := make(map[string]string, len(connector.Metadata.Configuration))
-			for k, v := range connector.Metadata.Configuration {
-				switch val := v.(type) {
-				case string:
-					serverConfig[k] = val
-				default:
-					serverConfig[k] = fmt.Sprintf("%v", val)
-				}
-			}
-
-			// Prefer existing known configuration from state as canvas
-			if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() {
-				existing := make(map[string]types.String, len(data.Configuration.Elements()))
-				diags.Append(data.Configuration.ElementsAs(ctx, &existing, false)...)
-				if !diags.HasError() {
-					result := make(map[string]attr.Value, len(existing))
-					ignoredKeys := make([]string, 0)
-
-					for k, v := range existing {
-						if srvVal, ok := serverConfig[k]; ok {
-							// Overwrite overlapping keys with server values
-							result[k] = types.StringValue(srvVal)
-						} else {
-							// Keep unknown keys and warn they were ignored by server
-							result[k] = types.StringValue(v.ValueString())
-							ignoredKeys = append(ignoredKeys, k)
-						}
-					}
-
-					configValue, configDiags := types.MapValue(types.StringType, result)
-					diags.Append(configDiags...)
-					if !diags.HasError() {
-						data.Configuration = configValue
-						if len(ignoredKeys) > 0 {
-							diags.AddWarning(
-								"Configuration attributes ignored by ZenML server",
-								fmt.Sprintf(
-									"The following configuration attributes are present in Terraform "+
-										"state but not recognized by the server and were ignored: %v.",
-									ignoredKeys,
-								),
-							)
-						}
-					}
+			if updateConfiguration {
+				cfg, changed := MergeOrCompareConfiguration(
+					ctx,
+					data.Configuration,
+					connector.Metadata.Configuration,
+					diags,
+					true,
+				)
+				if !diags.HasError() && changed {
+					data.Configuration = cfg
 				}
 			} else {
-				// No known state config, use the server configuration as-is
-				configMap := make(map[string]attr.Value, len(serverConfig))
-				for k, v := range serverConfig {
-					configMap[k] = types.StringValue(v)
-				}
-				configValue, configDiags := types.MapValue(types.StringType, configMap)
-				diags.Append(configDiags...)
-				if !diags.HasError() {
-					data.Configuration = configValue
-				}
+				_, _ = MergeOrCompareConfiguration(
+					ctx,
+					data.Configuration,
+					connector.Metadata.Configuration,
+					diags,
+					false,
+				)
 			}
 		}
 
@@ -500,7 +463,7 @@ func (r *ServiceConnectorResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics, false)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -532,7 +495,7 @@ func (r *ServiceConnectorResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics, true)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -607,7 +570,7 @@ func (r *ServiceConnectorResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics)
+	r.populateServiceConnectorModel(ctx, connector, &data, &resp.Diagnostics, true)
 	if resp.Diagnostics.HasError() {
 		return
 	}

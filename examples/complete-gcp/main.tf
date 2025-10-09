@@ -10,7 +10,6 @@ terraform {
   }
 }
 
-
 provider "zenml" {
   server_url = var.zenml_server_url
   api_key    = var.zenml_api_key

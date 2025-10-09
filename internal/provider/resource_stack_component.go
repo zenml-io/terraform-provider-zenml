@@ -180,6 +180,7 @@ func (r *StackComponentResource) populateStackComponentModel(
 	component *ComponentResponse,
 	data *StackComponentResourceModel,
 	diags *diag.Diagnostics,
+	updateConfiguration bool,
 ) {
 	data.ID = types.StringValue(component.ID)
 	data.Name = types.StringValue(component.Name)
@@ -193,63 +194,25 @@ func (r *StackComponentResource) populateStackComponentModel(
 
 	if component.Metadata != nil {
 		if component.Metadata.Configuration != nil {
-			// Normalize server configuration to string map
-			serverConfig := make(map[string]string, len(component.Metadata.Configuration))
-			for k, v := range component.Metadata.Configuration {
-				switch val := v.(type) {
-				case string:
-					serverConfig[k] = val
-				default:
-					serverConfig[k] = fmt.Sprintf("%v", val)
-				}
-			}
-
-			// If the data configuration is known and not null, use it as canvas.
-			if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() {
-				existing := make(map[string]types.String, len(data.Configuration.Elements()))
-				diags.Append(data.Configuration.ElementsAs(ctx, &existing, false)...)
-				if !diags.HasError() {
-					result := make(map[string]attr.Value, len(existing))
-					ignoredKeys := make([]string, 0)
-
-					for k, v := range existing {
-						if srvVal, ok := serverConfig[k]; ok {
-							// Overwrite values for keys that exist in both
-							result[k] = types.StringValue(srvVal)
-						} else {
-							// Keep keys that exist only in data and warn
-							result[k] = types.StringValue(v.ValueString())
-							ignoredKeys = append(ignoredKeys, k)
-						}
-					}
-
-					configValue, configDiags := types.MapValue(types.StringType, result)
-					diags.Append(configDiags...)
-					if !diags.HasError() {
-						data.Configuration = configValue
-						if len(ignoredKeys) > 0 {
-							diags.AddWarning(
-								"Configuration attributes ignored by ZenML server",
-								fmt.Sprintf(
-									"The following configuration attributes are present in Terraform "+
-										"state but not recognized by the server and were ignored: %v.",
-									ignoredKeys,
-								),
-							)
-						}
-					}
+			if updateConfiguration {
+				cfg, changed := MergeOrCompareConfiguration(
+					ctx,
+					data.Configuration,
+					component.Metadata.Configuration,
+					diags,
+					true,
+				)
+				if !diags.HasError() && changed {
+					data.Configuration = cfg
 				}
 			} else {
-				// Otherwise, use the configuration from the server as-is
-				configMap := make(map[string]attr.Value, len(serverConfig))
-				for k, v := range serverConfig {
-					configMap[k] = types.StringValue(v)
-				}
-				configValue, configDiags := types.MapValue(types.StringType, configMap)
-				diags.Append(configDiags...)
-				if !diags.HasError() {
-					data.Configuration = configValue
-				}
+				_, _ = MergeOrCompareConfiguration(
+					ctx,
+					data.Configuration,
+					component.Metadata.Configuration,
+					diags,
+					false,
+				)
 			}
 		}
 
@@ -345,7 +308,7 @@ func (r *StackComponentResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics)
+	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics, false)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -376,7 +339,7 @@ func (r *StackComponentResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics)
+	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics, true)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -450,7 +413,7 @@ func (r *StackComponentResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics)
+	r.populateStackComponentModel(ctx, component, &data, &resp.Diagnostics, false)
 	if resp.Diagnostics.HasError() {
 		return
 	}
