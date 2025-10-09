@@ -373,32 +373,78 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 		data.Updated = types.StringValue(connector.Body.Updated)
 	}
 
-	if connector.Metadata != nil && connector.Metadata.Configuration != nil {
-		configMap := make(map[string]attr.Value)
-		for k, v := range connector.Metadata.Configuration {
-			switch val := v.(type) {
-			case string:
-				configMap[k] = types.StringValue(val)
-			default:
-				configMap[k] = types.StringValue(fmt.Sprintf("%v", val))
+	if connector.Metadata != nil {
+		if connector.Metadata.Configuration != nil {
+			// Normalize server configuration to a string map
+			serverConfig := make(map[string]string, len(connector.Metadata.Configuration))
+			for k, v := range connector.Metadata.Configuration {
+				switch val := v.(type) {
+				case string:
+					serverConfig[k] = val
+				default:
+					serverConfig[k] = fmt.Sprintf("%v", val)
+				}
+			}
+
+			// Prefer existing known configuration from state as canvas
+			if !data.Configuration.IsNull() && !data.Configuration.IsUnknown() {
+				existing := make(map[string]types.String, len(data.Configuration.Elements()))
+				diags.Append(data.Configuration.ElementsAs(ctx, &existing, false)...)
+				if !diags.HasError() {
+					result := make(map[string]attr.Value, len(existing))
+					ignoredKeys := make([]string, 0)
+
+					for k, v := range existing {
+						if srvVal, ok := serverConfig[k]; ok {
+							// Overwrite overlapping keys with server values
+							result[k] = types.StringValue(srvVal)
+						} else {
+							// Keep unknown keys and warn they were ignored by server
+							result[k] = types.StringValue(v.ValueString())
+							ignoredKeys = append(ignoredKeys, k)
+						}
+					}
+
+					configValue, configDiags := types.MapValue(types.StringType, result)
+					diags.Append(configDiags...)
+					if !diags.HasError() {
+						data.Configuration = configValue
+						if len(ignoredKeys) > 0 {
+							diags.AddWarning(
+								"Configuration attributes ignored by ZenML server",
+								fmt.Sprintf(
+									"The following configuration attributes are present in Terraform "+
+										"state but not recognized by the server and were ignored: %v.",
+									ignoredKeys,
+								),
+							)
+						}
+					}
+				}
+			} else {
+				// No known state config, use the server configuration as-is
+				configMap := make(map[string]attr.Value, len(serverConfig))
+				for k, v := range serverConfig {
+					configMap[k] = types.StringValue(v)
+				}
+				configValue, configDiags := types.MapValue(types.StringType, configMap)
+				diags.Append(configDiags...)
+				if !diags.HasError() {
+					data.Configuration = configValue
+				}
 			}
 		}
-		configValue, configDiags := types.MapValue(types.StringType, configMap)
-		diags.Append(configDiags...)
-		if !diags.HasError() {
-			data.Configuration = configValue
-		}
-	}
 
-	if connector.Metadata != nil && connector.Metadata.Labels != nil {
-		labelMap := make(map[string]attr.Value)
-		for k, v := range connector.Metadata.Labels {
-			labelMap[k] = types.StringValue(v)
-		}
-		labelValue, labelDiags := types.MapValue(types.StringType, labelMap)
-		diags.Append(labelDiags...)
-		if !diags.HasError() {
-			data.Labels = labelValue
+		if connector.Metadata.Labels != nil {
+			labelMap := make(map[string]attr.Value)
+			for k, v := range connector.Metadata.Labels {
+				labelMap[k] = types.StringValue(v)
+			}
+			labelValue, labelDiags := types.MapValue(types.StringType, labelMap)
+			diags.Append(labelDiags...)
+			if !diags.HasError() {
+				data.Labels = labelValue
+			}
 		}
 	}
 }
