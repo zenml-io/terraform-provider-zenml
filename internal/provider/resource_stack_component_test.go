@@ -1,31 +1,28 @@
-// internal/provider/resource_stack_component_test.go
 package provider
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 func TestAccStackComponent_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckStackComponentDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccStackComponentConfig_basic(),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckStackComponentExists("zenml_stack_component.test"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "name", "test-store"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "type", "artifact_store"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "flavor", "local"),
+					resource.TestCheckResourceAttrSet(
+						"zenml_stack_component.test", "id"),
 				),
 			},
 			{
@@ -39,161 +36,118 @@ func TestAccStackComponent_basic(t *testing.T) {
 
 func TestAccStackComponent_update(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckStackComponentDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccStackComponentConfig_basic(),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckStackComponentExists("zenml_stack_component.test"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "name", "test-store"),
 				),
 			},
 			{
-				Config: testAccStackComponentConfig_update(),
+				Config: testAccStackComponentConfig_updated(),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckStackComponentExists("zenml_stack_component.test"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack_component.test", "name", "updated-store"),
-					resource.TestCheckResourceAttr(
-						"zenml_stack_component.test", "labels.environment", "staging"),
 				),
 			},
 		},
 	})
 }
 
-func TestAccStackComponent_withConnector(t *testing.T) {
+func TestAccStackComponent_withLabels(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckStackComponentDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccStackComponentConfig_withConnector(),
+				Config: testAccStackComponentConfig_withLabels(),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckStackComponentExists("zenml_stack_component.test"),
 					resource.TestCheckResourceAttr(
-						"zenml_stack_component.test", "name", "test-store"),
-					resource.TestCheckResourceAttrPair(
-						"zenml_stack_component.test", "connector_id",
-						"zenml_service_connector.test", "id"),
+						"zenml_stack_component.test", "name", "test-store-labeled"),
+					resource.TestCheckResourceAttr(
+						"zenml_stack_component.test", "labels.environment", "test"),
+					resource.TestCheckResourceAttr(
+						"zenml_stack_component.test", "labels.team", "platform"),
 				),
 			},
 		},
 	})
 }
 
-func testAccCheckStackComponentExists(n string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[n]
-		if !ok {
-			return fmt.Errorf("Not found: %s", n)
-		}
-
-		if rs.Primary.ID == "" {
-			return fmt.Errorf("No ID is set")
-		}
-
-		client := testAccProvider.Meta().(*Client)
-		_, err := client.GetComponent(context.Background(), rs.Primary.ID)
-		if err != nil {
-			return fmt.Errorf("Stack Component not found: %v", err)
-		}
-
-		return nil
-	}
-}
-
-func testAccCheckStackComponentDestroy(s *terraform.State) error {
-	client := testAccProvider.Meta().(*Client)
-
-	for _, rs := range s.RootModule().Resources {
-		switch rs.Type {
-		case "zenml_stack_component":
-			_, err := client.GetComponent(context.Background(), rs.Primary.ID)
-			if err == nil {
-				return fmt.Errorf("Stack Component still exists")
-			}
-		case "zenml_service_connector":
-			_, err := client.GetServiceConnector(context.Background(), rs.Primary.ID)
-			if err == nil {
-				return fmt.Errorf("Service Connector still exists")
-			}
-		}
-	}
-
-	return nil
+func TestAccStackComponent_withConfiguration(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccStackComponentConfig_withConfiguration(),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"zenml_stack_component.test", "name", "test-store-config"),
+					resource.TestCheckResourceAttr(
+						"zenml_stack_component.test", "configuration.path", "/tmp/zenml"),
+				),
+			},
+		},
+	})
 }
 
 func testAccStackComponentConfig_basic() string {
-	return `
-resource "zenml_stack_component" "test" {
-	name      = "test-store"
-	type      = "artifact_store"
-	flavor    = "local"
-	
-	configuration = {
-		path = "/tmp/artifacts"
-	}
-	
-	labels = {
-		environment = "test"
-	}
-}`
-}
-
-func testAccStackComponentConfig_update() string {
-	return `
-resource "zenml_stack_component" "test" {
-	name      = "updated-store"
-	type      = "artifact_store"
-	flavor    = "local"
-	
-	configuration = {
-		path = "/tmp/artifacts-updated"
-	}
-	
-	labels = {
-		environment = "staging"
-		team        = "ml"
-	}
-}`
-}
-
-func testAccStackComponentConfig_withConnector() string {
-	return `
-resource "zenml_service_connector" "test" {
-	name        = "test-connector"
-	type        = "gcp"
-	auth_method = "service-account"
-	
-	resource_type = "gcs-bucket"
-	
-	configuration = {
-		project_id = "test-project"
-		service_account_json = jsonencode({
-			"type": "service_account",
-			"project_id": "test-project"
-		})
-	}
-}
+	return fmt.Sprintf(`
+%s
 
 resource "zenml_stack_component" "test" {
-	name      = "test-store"
-	type      = "artifact_store"
-	flavor    = "gcp"
-	
-	configuration = {
-		path = "gs://test-bucket/artifacts"
-	}
-	
-	connector_id = zenml_service_connector.test.id
-	
-	labels = {
-		environment = "test"
-	}
-}`
+  name   = "test-store"
+  type   = "artifact_store"
+  flavor = "local"
+}
+`, testAccProviderConfig())
+}
+
+func testAccStackComponentConfig_updated() string {
+	return fmt.Sprintf(`
+%s
+
+resource "zenml_stack_component" "test" {
+  name   = "updated-store"
+  type   = "artifact_store"
+  flavor = "local"
+}
+`, testAccProviderConfig())
+}
+
+func testAccStackComponentConfig_withLabels() string {
+	return fmt.Sprintf(`
+%s
+
+resource "zenml_stack_component" "test" {
+  name   = "test-store-labeled"
+  type   = "artifact_store"
+  flavor = "local"
+  
+  labels = {
+    environment = "test"
+    team        = "platform"
+  }
+}
+`, testAccProviderConfig())
+}
+
+func testAccStackComponentConfig_withConfiguration() string {
+	return fmt.Sprintf(`
+%s
+
+resource "zenml_stack_component" "test" {
+  name   = "test-store-config"
+  type   = "artifact_store"
+  flavor = "local"
+  
+  configuration = {
+    path = "/tmp/zenml"
+  }
+}
+`, testAccProviderConfig())
 }

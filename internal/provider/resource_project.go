@@ -5,150 +5,247 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-func resourceProject() *schema.Resource {
-	return &schema.Resource{
-		CreateContext: resourceProjectCreate,
-		ReadContext:   resourceProjectRead,
-		UpdateContext: resourceProjectUpdate,
-		DeleteContext: resourceProjectDelete,
+var _ resource.Resource = &ProjectResource{}
+var _ resource.ResourceWithImportState = &ProjectResource{}
 
-		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "The unique name of the project",
-			},
-			"display_name": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "The display name of the project",
-			},
-			"description": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Description: "A description of the project",
-			},
-			"created": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "The timestamp when the project was created",
-			},
-			"updated": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "The timestamp when the project was last updated",
-			},
-		},
+func NewProjectResource() resource.Resource {
+	return &ProjectResource{}
+}
 
-		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
+type ProjectResource struct {
+	client *Client
+}
+
+type ProjectResourceModel struct {
+	ID          types.String `tfsdk:"id"`
+	Name        types.String `tfsdk:"name"`
+	DisplayName types.String `tfsdk:"display_name"`
+	Description types.String `tfsdk:"description"`
+	Created     types.String `tfsdk:"created"`
+	Updated     types.String `tfsdk:"updated"`
+}
+
+func (r *ProjectResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_project"
+}
+
+func (r *ProjectResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Project resource",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Project identifier",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"name": schema.StringAttribute{
+				MarkdownDescription: "The unique name of the project",
+				Required:            true,
+			},
+			"display_name": schema.StringAttribute{
+				MarkdownDescription: "The display name of the project",
+				Optional:            true,
+			},
+			"description": schema.StringAttribute{
+				MarkdownDescription: "A description of the project",
+				Optional:            true,
+			},
+			"created": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the project was created",
+				Computed:            true,
+			},
+			"updated": schema.StringAttribute{
+				MarkdownDescription: "The timestamp when the project was last updated",
+				Computed:            true,
+			},
 		},
 	}
 }
 
-func resourceProjectCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
-
-	projectRequest := ProjectRequest{
-		Name:        d.Get("name").(string),
-		DisplayName: d.Get("display_name").(string),
-		Description: d.Get("description").(string),
+func (r *ProjectResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
 	}
 
-	project, err := client.CreateProject(ctx, projectRequest)
-	if err != nil {
-		return diag.FromErr(err)
+	client, ok := req.ProviderData.(*Client)
+
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+
+		return
 	}
 
-	d.SetId(project.ID)
-
-	return resourceProjectRead(ctx, d, m)
+	r.client = client
 }
 
-func resourceProjectRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
-
-	project, err := client.GetProject(ctx, d.Id())
-	if err != nil {
-		if isNotFoundError(err) {
-			d.SetId("")
-			return nil
-		}
-		return diag.FromErr(err)
-	}
-
-	if err := d.Set("name", project.Name); err != nil {
-		return diag.FromErr(err)
-	}
+func (r *ProjectResource) populateProjectModel(
+	ctx context.Context,
+	project *ProjectResponse,
+	data *ProjectResourceModel,
+	diags *diag.Diagnostics,
+) {
+	data.ID = types.StringValue(project.ID)
+	data.Name = types.StringValue(project.Name)
 
 	if project.Body != nil {
-		if err := d.Set("display_name", project.Body.DisplayName); err != nil {
-			return diag.FromErr(err)
-		}
-		if err := d.Set("created", project.Body.Created); err != nil {
-			return diag.FromErr(err)
-		}
-		if err := d.Set("updated", project.Body.Updated); err != nil {
-			return diag.FromErr(err)
-		}
+		data.DisplayName = types.StringValue(project.Body.DisplayName)
+		data.Created = types.StringValue(project.Body.Created)
+		data.Updated = types.StringValue(project.Body.Updated)
 	}
 
 	if project.Metadata != nil {
-		if err := d.Set("description", project.Metadata.Description); err != nil {
-			return diag.FromErr(err)
-		}
+		data.Description = types.StringValue(project.Metadata.Description)
 	}
-
-	return nil
 }
 
-func resourceProjectUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *ProjectResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data ProjectResourceModel
 
-	projectUpdate := ProjectUpdate{}
+	// Read Terraform plan data into the model
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
-	if d.HasChange("name") {
-		name := d.Get("name").(string)
-		projectUpdate.Name = &name
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	if d.HasChange("display_name") {
-		displayName := d.Get("display_name").(string)
-		projectUpdate.DisplayName = &displayName
+	// Create project request
+	projectReq := ProjectRequest{
+		Name: data.Name.ValueString(),
 	}
 
-	if d.HasChange("description") {
-		description := d.Get("description").(string)
-		projectUpdate.Description = &description
+	if !data.DisplayName.IsNull() {
+		projectReq.DisplayName = data.DisplayName.ValueString()
 	}
 
-	_, err := client.UpdateProject(ctx, d.Id(), projectUpdate)
+	if !data.Description.IsNull() {
+		projectReq.Description = data.Description.ValueString()
+	}
+
+	tflog.Trace(ctx, "creating project")
+
+	project, err := r.client.CreateProject(ctx, projectReq)
 	if err != nil {
-		return diag.FromErr(err)
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create project, got error: %s", err))
+		return
 	}
 
-	return resourceProjectRead(ctx, d, m)
+	r.populateProjectModel(ctx, project, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Trace(ctx, "created a project")
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func resourceProjectDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(*Client)
+func (r *ProjectResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data ProjectResourceModel
 
-	err := client.DeleteProject(ctx, d.Id())
+	// Read Terraform prior state data into the model
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	project, err := r.client.GetProject(ctx, data.ID.ValueString())
 	if err != nil {
-		if isNotFoundError(err) {
-			return nil
-		}
-		return diag.FromErr(err)
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read project, got error: %s", err))
+		return
 	}
 
-	d.SetId("")
-	return nil
+	if project == nil {
+		// Project was deleted outside of Terraform
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	r.populateProjectModel(ctx, project, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func isNotFoundError(err error) bool {
-	return err != nil && (err.Error() == "404" || fmt.Sprintf("%v", err) == "404")
+func (r *ProjectResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data ProjectResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	updateReq := ProjectUpdate{}
+
+	if !data.Name.IsNull() {
+		name := data.Name.ValueString()
+		updateReq.Name = &name
+	}
+
+	if !data.DisplayName.IsNull() {
+		displayName := data.DisplayName.ValueString()
+		updateReq.DisplayName = &displayName
+	}
+
+	if !data.Description.IsNull() {
+		description := data.Description.ValueString()
+		updateReq.Description = &description
+	}
+
+	tflog.Trace(ctx, "updating project")
+
+	project, err := r.client.UpdateProject(ctx, data.ID.ValueString(), updateReq)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update project, got error: %s", err))
+		return
+	}
+
+	r.populateProjectModel(ctx, project, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *ProjectResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data ProjectResourceModel
+
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Trace(ctx, "deleting project")
+
+	err := r.client.DeleteProject(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete project, got error: %s", err))
+		return
+	}
+}
+
+func (r *ProjectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

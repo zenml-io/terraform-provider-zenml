@@ -4,160 +4,206 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-func dataSourceServer() *schema.Resource {
-	return &schema.Resource{
-		Description: "Data source for global ZenML server information",
-		ReadContext: dataSourceServerRead,
-		Schema: map[string]*schema.Schema{
-			"name": {
-				Description: "Server name",
-				Type:        schema.TypeString,
-				Computed:    true,
+var _ datasource.DataSource = &ServerDataSource{}
+
+func NewServerDataSource() datasource.DataSource {
+	return &ServerDataSource{}
+}
+
+type ServerDataSource struct {
+	client *Client
+}
+
+type ServerDataSourceModel struct {
+	ID                  types.String `tfsdk:"id"`
+	Name                types.String `tfsdk:"name"`
+	Version             types.String `tfsdk:"version"`
+	DeploymentType      types.String `tfsdk:"deployment_type"`
+	AuthScheme          types.String `tfsdk:"auth_scheme"`
+	ServerURL           types.String `tfsdk:"server_url"`
+	DashboardURL        types.String `tfsdk:"dashboard_url"`
+	ProDashboardURL     types.String `tfsdk:"pro_dashboard_url"`
+	ProAPIURL           types.String `tfsdk:"pro_api_url"`
+	ProOrganizationID   types.String `tfsdk:"pro_organization_id"`
+	ProOrganizationName types.String `tfsdk:"pro_organization_name"`
+	ProWorkspaceID      types.String `tfsdk:"pro_workspace_id"`
+	ProWorkspaceName    types.String `tfsdk:"pro_workspace_name"`
+	Metadata            types.Map    `tfsdk:"metadata"`
+}
+
+func (d *ServerDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_server"
+}
+
+func (d *ServerDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Data source for global ZenML server information",
+
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				MarkdownDescription: "Server identifier",
+				Computed:            true,
 			},
-			"version": {
-				Description: "Server version",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"name": schema.StringAttribute{
+				MarkdownDescription: "Server name",
+				Computed:            true,
 			},
-			"deployment_type": {
-				Description: "Server deployment type",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"version": schema.StringAttribute{
+				MarkdownDescription: "Server version",
+				Computed:            true,
 			},
-			"auth_scheme": {
-				Description: "Server authentication scheme",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"deployment_type": schema.StringAttribute{
+				MarkdownDescription: "Server deployment type",
+				Computed:            true,
 			},
-			"server_url": {
-				Description: "Server API URL",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"auth_scheme": schema.StringAttribute{
+				MarkdownDescription: "Server authentication scheme",
+				Computed:            true,
 			},
-			"dashboard_url": {
-				Description: "Server dashboard URL",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"server_url": schema.StringAttribute{
+				MarkdownDescription: "Server API URL",
+				Computed:            true,
 			},
-			"pro_dashboard_url": {
-				Description: "ZenML Pro dashboard URL",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"dashboard_url": schema.StringAttribute{
+				MarkdownDescription: "Server dashboard URL",
+				Computed:            true,
 			},
-			"pro_api_url": {
-				Description: "ZenML Pro API URL",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"pro_dashboard_url": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro dashboard URL",
+				Computed:            true,
 			},
-			"pro_organization_id": {
-				Description: "ZenML Pro organization ID",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"pro_api_url": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro API URL",
+				Computed:            true,
 			},
-			"pro_organization_name": {
-				Description: "ZenML Pro organization name",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"pro_organization_id": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro organization ID",
+				Computed:            true,
 			},
-			"pro_workspace_id": {
-				Description: "ZenML Pro workspace ID",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"pro_organization_name": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro organization name",
+				Computed:            true,
 			},
-			"pro_workspace_name": {
-				Description: "ZenML Pro workspace name",
-				Type:        schema.TypeString,
-				Computed:    true,
+			"pro_workspace_id": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro workspace ID",
+				Computed:            true,
 			},
-			"metadata": {
-				Description: "Server metadata",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+			"pro_workspace_name": schema.StringAttribute{
+				MarkdownDescription: "ZenML Pro workspace name",
+				Computed:            true,
+			},
+			"metadata": schema.MapAttribute{
+				MarkdownDescription: "Server metadata",
+				ElementType:         types.StringType,
+				Computed:            true,
 			},
 		},
 	}
 }
 
-func dataSourceServerRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	c := m.(*Client)
+func (d *ServerDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
 
-	server, err := c.GetServerInfo(ctx)
+	client, ok := req.ProviderData.(*Client)
+
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Data Source Configure Type",
+			fmt.Sprintf("Expected *Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+
+		return
+	}
+
+	d.client = client
+}
+
+func (d *ServerDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data ServerDataSourceModel
+
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Debug(ctx, "Reading server information")
+
+	serverInfo, err := d.client.GetServerInfo(ctx)
 	if err != nil {
-		return diag.FromErr(fmt.Errorf("error fetching server info: %v", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read server info, got error: %s", err))
+		return
 	}
 
-	d.SetId(server.ID)
+	data.ID = types.StringValue(serverInfo.ID)
+	data.Name = types.StringValue(serverInfo.Name)
+	data.Version = types.StringValue(serverInfo.Version)
+	data.DeploymentType = types.StringValue(serverInfo.DeploymentType)
+	data.AuthScheme = types.StringValue(serverInfo.AuthScheme)
+	data.ServerURL = types.StringValue(serverInfo.ServerURL)
+	data.DashboardURL = types.StringValue(serverInfo.DashboardURL)
 
-	if err := d.Set("name", server.Name); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProDashboardURL != nil {
+		data.ProDashboardURL = types.StringValue(*serverInfo.ProDashboardURL)
+	} else {
+		data.ProDashboardURL = types.StringNull()
 	}
 
-	if err := d.Set("version", server.Version); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProAPIURL != nil {
+		data.ProAPIURL = types.StringValue(*serverInfo.ProAPIURL)
+	} else {
+		data.ProAPIURL = types.StringNull()
 	}
 
-	if err := d.Set("deployment_type", server.DeploymentType); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProOrganizationID != nil {
+		data.ProOrganizationID = types.StringValue(*serverInfo.ProOrganizationID)
+	} else {
+		data.ProOrganizationID = types.StringNull()
 	}
 
-	if err := d.Set("auth_scheme", server.AuthScheme); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProOrganizationName != nil {
+		data.ProOrganizationName = types.StringValue(*serverInfo.ProOrganizationName)
+	} else {
+		data.ProOrganizationName = types.StringNull()
 	}
 
-	if err := d.Set("server_url", server.ServerURL); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProWorkspaceID != nil {
+		data.ProWorkspaceID = types.StringValue(*serverInfo.ProWorkspaceID)
+	} else {
+		data.ProWorkspaceID = types.StringNull()
 	}
 
-	if err := d.Set("dashboard_url", server.DashboardURL); err != nil {
-		return diag.FromErr(err)
+	if serverInfo.ProWorkspaceName != nil {
+		data.ProWorkspaceName = types.StringValue(*serverInfo.ProWorkspaceName)
+	} else {
+		data.ProWorkspaceName = types.StringNull()
 	}
 
-	if server.ProDashboardURL != nil {
-		if err := d.Set("pro_dashboard_url", *server.ProDashboardURL); err != nil {
-			return diag.FromErr(err)
+	if serverInfo.Metadata != nil {
+		metadataMap := make(map[string]attr.Value)
+		for k, v := range serverInfo.Metadata {
+			metadataMap[k] = types.StringValue(v)
 		}
-	}
-
-	if server.ProAPIURL != nil {
-		if err := d.Set("pro_api_url", *server.ProAPIURL); err != nil {
-			return diag.FromErr(err)
+		metadataValue, diags := types.MapValue(types.StringType, metadataMap)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.Metadata = metadataValue
 		}
+	} else {
+		data.Metadata = types.MapNull(types.StringType)
 	}
 
-	if server.ProOrganizationID != nil {
-		if err := d.Set("pro_organization_id", *server.ProOrganizationID); err != nil {
-			return diag.FromErr(err)
-		}
-	}
+	tflog.Trace(ctx, "read a data source")
 
-	if server.ProOrganizationName != nil {
-		if err := d.Set("pro_organization_name", *server.ProOrganizationName); err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	if server.ProWorkspaceID != nil {
-		if err := d.Set("pro_workspace_id", *server.ProWorkspaceID); err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	if server.ProWorkspaceName != nil {
-		if err := d.Set("pro_workspace_name", *server.ProWorkspaceName); err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	if err := d.Set("metadata", server.Metadata); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return nil
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

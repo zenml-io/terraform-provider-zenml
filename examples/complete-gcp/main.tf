@@ -5,7 +5,7 @@ terraform {
       version = "~> 5.0"
     }
     zenml = {
-        source = "zenml-io/zenml"
+      source = "zenml-io/zenml"
     }
   }
 }
@@ -33,16 +33,16 @@ resource "google_project_service" "common_services" {
     "storage-api.googleapis.com",
     "aiplatform.googleapis.com",
   ])
-  service = each.key
+  service            = each.key
   disable_on_destroy = false
 }
 
 # Create GCS bucket for ZenML artifacts
 
 resource "google_storage_bucket" "artifacts" {
-  name     = "${var.project_id}-zenml-artifacts-${var.environment}"
-  location = var.region
-  depends_on = [google_project_service.common_services]
+  name          = "${var.project_id}-zenml-artifacts-${var.environment}"
+  location      = var.region
+  depends_on    = [google_project_service.common_services]
   force_destroy = true
 }
 
@@ -104,8 +104,8 @@ resource "zenml_service_connector" "gcp" {
   auth_method = "service-account"
 
   configuration = {
-    project_id = var.project_id
-    region     = var.region
+    project_id           = var.project_id
+    region               = var.region
     service_account_json = google_service_account_key.zenml_sa_key.private_key
   }
 
@@ -174,11 +174,32 @@ resource "zenml_stack" "gcp_stack" {
   components = {
     artifact_store     = zenml_stack_component.artifact_store.id
     container_registry = zenml_stack_component.container_registry.id
-    orchestrator      = zenml_stack_component.orchestrator.id
+    orchestrator       = zenml_stack_component.orchestrator.id
   }
 
   labels = {
     environment = var.environment
     managed_by  = "terraform"
   }
+}
+
+
+data "zenml_service_connector" "gcp" {
+  id = zenml_service_connector.gcp.id
+}
+
+data "zenml_stack_component" "artifact_store" {
+  id = zenml_stack_component.artifact_store.id
+}
+
+data "zenml_stack_component" "container_registry" {
+  id = zenml_stack_component.container_registry.id
+}
+
+data "zenml_stack_component" "orchestrator" {
+  id = zenml_stack_component.orchestrator.id
+}
+
+data "zenml_stack" "gcp_stack" {
+  id = zenml_stack.gcp_stack.id
 }
