@@ -201,13 +201,23 @@ func (d *ServiceConnectorDataSource) Read(ctx context.Context, req datasource.Re
 	if connector.Metadata != nil && connector.Metadata.Configuration != nil {
 		configMap := make(map[string]attr.Value)
 		for k, v := range connector.Metadata.Configuration {
-			// Always convert to string representation
-			// If it's already a string, use it as-is; otherwise convert to string
 			switch val := v.(type) {
 			case string:
 				configMap[k] = types.StringValue(val)
 			default:
-				configMap[k] = types.StringValue(fmt.Sprintf("%v", val))
+				jsonBytes, err := json.Marshal(val)
+				if err != nil {
+					resp.Diagnostics.AddError(
+						"Configuration Serialization Error",
+						fmt.Sprintf(
+							"Unable to serialize configuration key '%s': %s",
+							k,
+							err,
+						),
+					)
+					return
+				}
+				configMap[k] = types.StringValue(string(jsonBytes))
 			}
 		}
 		configValue, diags := types.MapValue(types.StringType, configMap)

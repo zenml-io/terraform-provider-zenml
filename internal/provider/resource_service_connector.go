@@ -334,6 +334,7 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 	data.ID = types.StringValue(connector.ID)
 	data.Name = types.StringValue(connector.Name)
 
+	var oldUpdated string
 	if connector.Body != nil {
 		var connectorType string
 		if err := json.Unmarshal(connector.Body.ConnectorType, &connectorType); err != nil {
@@ -371,30 +372,28 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 		}
 
 		data.Created = types.StringValue(connector.Body.Created)
+
+		if !data.Updated.IsNull() {
+			oldUpdated = data.Updated.ValueString()
+		}
 		data.Updated = types.StringValue(connector.Body.Updated)
 	}
 
 	if connector.Metadata != nil {
 		if connector.Metadata.Configuration != nil {
-			if updateConfiguration {
+			timestampUnchanged := oldUpdated != "" &&
+				oldUpdated == connector.Body.Updated
+
+			if updateConfiguration && !timestampUnchanged {
 				cfg, changed := MergeOrCompareConfiguration(
 					ctx,
 					data.Configuration,
 					connector.Metadata.Configuration,
 					diags,
-					true,
 				)
 				if !diags.HasError() && changed {
 					data.Configuration = cfg
 				}
-			} else {
-				_, _ = MergeOrCompareConfiguration(
-					ctx,
-					data.Configuration,
-					connector.Metadata.Configuration,
-					diags,
-					false,
-				)
 			}
 		}
 

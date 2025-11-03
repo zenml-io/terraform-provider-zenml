@@ -185,34 +185,33 @@ func (r *StackComponentResource) populateStackComponentModel(
 	data.ID = types.StringValue(component.ID)
 	data.Name = types.StringValue(component.Name)
 
+	var oldUpdated string
 	if component.Body != nil {
 		data.Type = types.StringValue(component.Body.Type)
 		data.Flavor = types.StringValue(component.Body.Flavor)
 		data.Created = types.StringValue(component.Body.Created)
+
+		if !data.Updated.IsNull() {
+			oldUpdated = data.Updated.ValueString()
+		}
 		data.Updated = types.StringValue(component.Body.Updated)
 	}
 
 	if component.Metadata != nil {
 		if component.Metadata.Configuration != nil {
-			if updateConfiguration {
+			timestampUnchanged := oldUpdated != "" &&
+				oldUpdated == component.Body.Updated
+
+			if updateConfiguration && !timestampUnchanged {
 				cfg, changed := MergeOrCompareConfiguration(
 					ctx,
 					data.Configuration,
 					component.Metadata.Configuration,
 					diags,
-					true,
 				)
 				if !diags.HasError() && changed {
 					data.Configuration = cfg
 				}
-			} else {
-				_, _ = MergeOrCompareConfiguration(
-					ctx,
-					data.Configuration,
-					component.Metadata.Configuration,
-					diags,
-					false,
-				)
 			}
 		}
 
