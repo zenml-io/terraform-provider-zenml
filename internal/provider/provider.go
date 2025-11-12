@@ -43,7 +43,7 @@ func (p *ZenMLProvider) Schema(ctx context.Context, req provider.SchemaRequest, 
 		Attributes: map[string]schema.Attribute{
 			"server_url": schema.StringAttribute{
 				MarkdownDescription: "The URL of the ZenML server",
-				Required:            true,
+				Optional:            true,
 			},
 			"api_key": schema.StringAttribute{
 				MarkdownDescription: "The API key for authentication with the ZenML server",
