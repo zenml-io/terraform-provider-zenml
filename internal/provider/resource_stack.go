@@ -200,7 +200,7 @@ func (r *StackResource) populateStackModel(
 			}
 		}
 
-		if stack.Metadata.Labels != nil {
+		if len(stack.Metadata.Labels) > 0 {
 			labelMap := make(map[string]attr.Value)
 			for k, v := range stack.Metadata.Labels {
 				labelMap[k] = types.StringValue(v)
@@ -213,6 +213,8 @@ func (r *StackResource) populateStackModel(
 			if !diags.HasError() {
 				data.Labels = labelValue
 			}
+		} else if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
+			data.Labels = types.MapNull(types.StringType)
 		}
 	}
 }
@@ -345,13 +347,9 @@ func (r *StackResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 
 	updateReq := StackUpdate{
+		Name:       data.Name.ValueString(),
 		Components: components,
 		Labels:     labels,
-	}
-
-	if !data.Name.IsNull() {
-		name := data.Name.ValueString()
-		updateReq.Name = &name
 	}
 
 	tflog.Trace(ctx, "updating stack")

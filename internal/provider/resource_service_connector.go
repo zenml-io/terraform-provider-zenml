@@ -275,8 +275,8 @@ func (r *ServiceConnectorResource) buildServiceConnectorRequest(
 		return nil
 	}
 
-	configuration := make(map[string]interface{})
-	if !data.Configuration.IsNull() {
+	var configuration map[string]interface{} = make(map[string]interface{})
+	if !data.Configuration.IsNull() && len(data.Configuration.Elements()) > 0 {
 		configElements := make(map[string]types.String, len(data.Configuration.Elements()))
 		diags.Append(data.Configuration.ElementsAs(ctx, &configElements, false)...)
 		if diags.HasError() {
@@ -288,8 +288,8 @@ func (r *ServiceConnectorResource) buildServiceConnectorRequest(
 		}
 	}
 
-	labels := make(map[string]string)
-	if !data.Labels.IsNull() {
+	var labels map[string]string = make(map[string]string)
+	if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
 		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
 		diags.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
 		if diags.HasError() {
@@ -380,7 +380,7 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 	}
 
 	if connector.Metadata != nil {
-		if connector.Metadata.Configuration != nil {
+		if len(connector.Metadata.Configuration) > 0 {
 			timestampUnchanged := oldUpdated != "" &&
 				oldUpdated == connector.Body.Updated
 
@@ -395,9 +395,11 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 					data.Configuration = cfg
 				}
 			}
+		} else if !data.Configuration.IsNull() && len(data.Configuration.Elements()) > 0 {
+			data.Configuration = types.MapNull(types.StringType)
 		}
 
-		if connector.Metadata.Labels != nil {
+		if len(connector.Metadata.Labels) > 0 {
 			labelMap := make(map[string]attr.Value)
 			for k, v := range connector.Metadata.Labels {
 				labelMap[k] = types.StringValue(v)
@@ -407,6 +409,8 @@ func (r *ServiceConnectorResource) populateServiceConnectorModel(
 			if !diags.HasError() {
 				data.Labels = labelValue
 			}
+		} else if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
+			data.Labels = types.MapNull(types.StringType)
 		}
 	}
 }
@@ -546,18 +550,11 @@ func (r *ServiceConnectorResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	updateReq := ServiceConnectorUpdate{
+		Name:          connectorReq.Name,
 		Configuration: connectorReq.Configuration,
 		Labels:        connectorReq.Labels,
 		ResourceTypes: connectorReq.ResourceTypes,
-	}
-
-	if !data.Name.IsNull() {
-		name := data.Name.ValueString()
-		updateReq.Name = &name
-	}
-
-	if connectorReq.ResourceID != nil {
-		updateReq.ResourceID = connectorReq.ResourceID
+		ResourceID:    connectorReq.ResourceID,
 	}
 
 	tflog.Trace(ctx, "updating service connector")

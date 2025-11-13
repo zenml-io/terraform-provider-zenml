@@ -198,7 +198,7 @@ func (r *StackComponentResource) populateStackComponentModel(
 	}
 
 	if component.Metadata != nil {
-		if component.Metadata.Configuration != nil {
+		if len(component.Metadata.Configuration) > 0 {
 			timestampUnchanged := oldUpdated != "" &&
 				oldUpdated == component.Body.Updated
 
@@ -213,9 +213,11 @@ func (r *StackComponentResource) populateStackComponentModel(
 					data.Configuration = cfg
 				}
 			}
+		} else if !data.Configuration.IsNull() && len(data.Configuration.Elements()) > 0 {
+			data.Configuration = types.MapNull(types.StringType)
 		}
 
-		if component.Metadata.Labels != nil {
+		if len(component.Metadata.Labels) > 0 {
 			labelMap := make(map[string]attr.Value)
 			for k, v := range component.Metadata.Labels {
 				labelMap[k] = types.StringValue(v)
@@ -225,13 +227,20 @@ func (r *StackComponentResource) populateStackComponentModel(
 			if !diags.HasError() {
 				data.Labels = labelValue
 			}
+		} else if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
+			data.Labels = types.MapNull(types.StringType)
 		}
 
 		if component.Metadata.Connector != nil {
 			data.ConnectorID = types.StringValue(component.Metadata.Connector.ID)
+		} else {
+			data.ConnectorID = types.StringNull()
 		}
+
 		if component.Metadata.ConnectorResourceID != nil {
 			data.ConnectorResourceID = types.StringValue(*component.Metadata.ConnectorResourceID)
+		} else {
+			data.ConnectorResourceID = types.StringNull()
 		}
 	}
 }
@@ -385,13 +394,11 @@ func (r *StackComponentResource) Update(ctx context.Context, req resource.Update
 	}
 
 	updateReq := ComponentUpdate{
+		Name:          data.Name.ValueString(),
+		Type:          data.Type.ValueString(),
+		Flavor:        data.Flavor.ValueString(),
 		Configuration: configuration,
 		Labels:        labels,
-	}
-
-	if !data.Name.IsNull() {
-		name := data.Name.ValueString()
-		updateReq.Name = &name
 	}
 
 	if !data.ConnectorID.IsNull() && data.ConnectorID.ValueString() != "" {

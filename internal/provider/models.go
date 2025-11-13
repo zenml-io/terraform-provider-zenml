@@ -69,9 +69,9 @@ type StackResponseMetadata struct {
 
 // StackUpdate represents an update to an existing stack
 type StackUpdate struct {
-	Name       *string             `json:"name,omitempty"`
+	Name       string              `json:"name"`
 	Components map[string][]string `json:"components,omitempty"` // Only UUIDs for updates
-	Labels     map[string]string   `json:"labels,omitempty"`
+	Labels     map[string]string   `json:"labels"`
 }
 
 // ComponentRequest represents a request to create a new component
@@ -112,13 +112,13 @@ type ComponentResponseMetadata struct {
 
 // ComponentUpdate represents an update to an existing component
 type ComponentUpdate struct {
-	Name                *string                `json:"name,omitempty"`
-	Type                *string                `json:"type,omitempty"`
-	Flavor              *string                `json:"flavor,omitempty"`
-	Configuration       map[string]interface{} `json:"configuration,omitempty"`
-	ConnectorID         *string                `json:"connector,omitempty"`
-	ConnectorResourceID *string                `json:"connector_resource_id,omitempty"`
-	Labels              map[string]string      `json:"labels,omitempty"`
+	Name                string                 `json:"name"`
+	Type                string                 `json:"type"`
+	Flavor              string                 `json:"flavor"`
+	Configuration       map[string]interface{} `json:"configuration"`
+	ConnectorID         *string                `json:"connector"`
+	ConnectorResourceID *string                `json:"connector_resource_id"`
+	Labels              map[string]string      `json:"labels"`
 }
 
 // ServiceConnectorRequest represents a request to create a new service connector
@@ -199,13 +199,11 @@ type ServiceConnectorTypedResources struct {
 
 // ServiceConnectorUpdate represents an update to an existing service connector
 type ServiceConnectorUpdate struct {
-	Name          *string                `json:"name,omitempty"`
-	Configuration map[string]interface{} `json:"configuration,omitempty"`
-	Secrets       map[string]string      `json:"secrets,omitempty"`
-	Labels        map[string]string      `json:"labels,omitempty"`
+	Name          string                 `json:"name"`
+	Configuration map[string]interface{} `json:"configuration"`
+	Labels        map[string]string      `json:"labels"`
 	ResourceTypes []string               `json:"resource_types"`
-	ResourceID    *string                `json:"resource_id,omitempty"`
-	ExpiresAt     *string                `json:"expires_at,omitempty"`
+	ResourceID    *string                `json:"resource_id"`
 }
 
 // UserResponse represents a user response from the API
