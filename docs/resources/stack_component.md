@@ -47,6 +47,8 @@ resource "zenml_stack_component" "artifact_store" {
   * `orchestrator` - Orchestrator
   * `step_operator` - Step operator
   * `model_registry` - Model registry
+  * `deployer` - Deployer
+  * `log_store` - Log store
 * `flavor` - (Required) The flavor of the stack component (e.g., "local", "gcp", "aws"). To find out which flavors are supported by a component type, run `zenml stack-component describe-type <component-type>` or visit the [Component Gallery section of the ZenML documentation](https://docs.zenml.io/stack-components/component-guide) for more information.
 * `configuration` - (Optional, Sensitive) A map of configuration key-value pairs for the component.
 * `connector_id` - (Optional) The ID of the service connector to use with this component. Must be specified together with `connector_resource_id`.
