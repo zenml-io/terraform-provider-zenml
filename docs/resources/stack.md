@@ -60,6 +60,8 @@ resource "zenml_stack" "my_stack" {
   * `step_operator`
   * `model_deployer`
   * `experiment_tracker`
+  * `deployer`
+  * `log_store`
   * `alerter`
   * `annotator`
   * `data_validator`

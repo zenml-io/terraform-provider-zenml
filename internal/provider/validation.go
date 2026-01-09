@@ -98,6 +98,7 @@ var (
 		"step_operator",
 		"model_registry",
 		"deployer",
+		"log_store",
 	}
 )
 
