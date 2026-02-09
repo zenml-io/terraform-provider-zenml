@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
@@ -159,6 +160,15 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Set an idempotency key for POST requests so that transport-level retries
+	// (from retryablehttp) are deduplicated by the ZenML server. Each doRequest
+	// call gets a fresh UUID, but retries of the same call reuse the same
+	// http.Request (and thus the same header), which is exactly what the server's
+	// request deduplication expects.
+	if method == "POST" {
+		req.Header.Set("Idempotency-Key", uuid.NewString())
 	}
 
 	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, req.URL.String()))
