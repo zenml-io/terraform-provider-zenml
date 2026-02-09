@@ -8,8 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -25,19 +28,27 @@ type Client struct {
 	APIToken        string
 	APITokenExpires *time.Time
 	HTTPClient      *http.Client
+	tokenMu         sync.Mutex
 }
 
 func NewClient(serverURL, apiKey string, apiToken string) *Client {
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 4
+	retryClient.Logger = nil
+
 	return &Client{
-		ServerURL:       serverURL,
+		ServerURL:       strings.TrimRight(serverURL, "/"),
 		APIKey:          apiKey,
 		APIToken:        apiToken,
 		APITokenExpires: nil,
-		HTTPClient:      &http.Client{},
+		HTTPClient:      retryClient.StandardClient(),
 	}
 }
 
 func (c *Client) getAPIToken(ctx context.Context) (string, error) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
 	if c.APIToken != "" {
 		if c.APITokenExpires == nil {
 			// No expiry, so just return the token
@@ -75,7 +86,8 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	// Get a new token from the API key using the password flow
 	data := url.Values{}
 	data.Set("password", c.APIKey)
-	loginReq, err := http.NewRequest(
+	loginReq, err := http.NewRequestWithContext(
+		ctx,
 		"POST",
 		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
 		bytes.NewBufferString(data.Encode()),
@@ -120,7 +132,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		bodyReader = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error creating request: %v", err)
 	}
@@ -149,7 +161,10 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 	// Read the response body once and store it in a variable
 	defer resp.Body.Close()
-	resp_body, _ := io.ReadAll(resp.Body)
+	resp_body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error reading response body: %v", err)
+	}
 
 	// Print the response body as JSON if available
 	if len(resp_body) > 0 {
