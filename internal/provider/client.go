@@ -102,6 +102,11 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	}
 	defer loginResp.Body.Close()
 
+	if loginResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(loginResp.Body)
+		return "", fmt.Errorf("authentication failed: login request returned status %d: %s", loginResp.StatusCode, string(body))
+	}
+
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`

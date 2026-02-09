@@ -445,7 +445,7 @@ func (r *ServiceConnectorResource) Create(ctx context.Context, req resource.Crea
 		retryErr := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
 			validation, err := r.client.VerifyServiceConnector(ctx, *connectorReq)
 			if err != nil {
-				return retry.RetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
+				return retry.NonRetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
 			}
 			if validation.Error != nil {
 				return retry.RetryableError(fmt.Errorf("Error verifying service connector configuration: %s", *validation.Error))
@@ -536,7 +536,7 @@ func (r *ServiceConnectorResource) Update(ctx context.Context, req resource.Upda
 		retryErr := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
 			validation, err := r.client.VerifyServiceConnector(ctx, *connectorReq)
 			if err != nil {
-				return retry.RetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
+				return retry.NonRetryableError(fmt.Errorf("unable to verify service connector configuration, got error: %s", err))
 			}
 			if validation.Error != nil {
 				return retry.RetryableError(fmt.Errorf("Error verifying service connector configuration: %s", *validation.Error))
