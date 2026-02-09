@@ -36,12 +36,15 @@ func NewClient(serverURL, apiKey string, apiToken string) *Client {
 	retryClient.RetryMax = 4
 	retryClient.Logger = nil
 
+	httpClient := retryClient.StandardClient()
+	httpClient.Timeout = 60 * time.Second
+
 	return &Client{
 		ServerURL:       strings.TrimRight(serverURL, "/"),
 		APIKey:          apiKey,
 		APIToken:        apiToken,
 		APITokenExpires: nil,
-		HTTPClient:      retryClient.StandardClient(),
+		HTTPClient:      httpClient,
 	}
 }
 
@@ -116,10 +119,15 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	}
 
 	c.APIToken = tokenResp.AccessToken
-	// Set the expiry time to 5 minutes before the actual expiry, to account for
-	// clock skew and to avoid using an expired token when making requests
+	// Set the expiry time with a buffer before the actual expiry, to account for
+	// clock skew and to avoid using an expired token when making requests.
+	// Clamp the buffer so short-lived tokens don't get a negative expiry.
+	buffer := 300
+	if tokenResp.ExpiresIn < buffer {
+		buffer = tokenResp.ExpiresIn / 2
+	}
 	expiresAt := time.Now().Add(
-		time.Duration(tokenResp.ExpiresIn-300) * time.Second,
+		time.Duration(tokenResp.ExpiresIn-buffer) * time.Second,
 	)
 	c.APITokenExpires = &expiresAt
 
