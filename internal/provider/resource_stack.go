@@ -119,11 +119,15 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 				continue
 			}
 
-			if compID.IsNull() || compID.IsUnknown() || strings.TrimSpace(compID.ValueString()) == "" {
+			if compID.IsUnknown() {
+				continue
+			}
+
+			if compID.IsNull() || strings.TrimSpace(compID.ValueString()) == "" {
 				resp.Diagnostics.AddAttributeError(
 					path.Root("components").AtMapKey(compType),
 					"Invalid component ID",
-					"Component IDs in the stack components map must be known, non-null, and non-empty.",
+					"Component IDs in the stack components map must be non-null and non-empty (unknown values from resource references are allowed during planning).",
 				)
 			}
 		}
