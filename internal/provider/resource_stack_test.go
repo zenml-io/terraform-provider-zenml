@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAccStack_basic(t *testing.T) {
@@ -33,6 +34,8 @@ func TestAccStack_basic(t *testing.T) {
 }
 
 func TestAccStack_update(t *testing.T) {
+	var stackID string
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -42,6 +45,7 @@ func TestAccStack_update(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr(
 						"zenml_stack.test", "name", "test-stack"),
+					testAccCaptureResourceAttr("zenml_stack.test", "id", &stackID),
 				),
 			},
 			{
@@ -51,10 +55,97 @@ func TestAccStack_update(t *testing.T) {
 						"zenml_stack.test", "name", "updated-stack"),
 					resource.TestCheckResourceAttr(
 						"zenml_stack.test", "labels.environment", "production"),
+					testAccCheckResourceAttrEquals("zenml_stack.test", "id", &stackID),
 				),
 			},
 		},
 	})
+}
+
+func TestAccStack_noopReapplyDoesNotReplace(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccStackConfig_basic(),
+			},
+			{
+				Config:             testAccStackConfig_basic(),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+		},
+	})
+}
+
+func TestAccStack_updateComponentsInPlace(t *testing.T) {
+	var stackID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccStackConfig_withTwoOrchestrators(false),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("zenml_stack.test", "name", "test-stack"),
+					testAccCaptureResourceAttr("zenml_stack.test", "id", &stackID),
+					resource.TestCheckResourceAttrPair(
+						"zenml_stack.test", "components.orchestrator",
+						"zenml_stack_component.orchestrator_a", "id",
+					),
+				),
+			},
+			{
+				Config: testAccStackConfig_withTwoOrchestrators(true),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckResourceAttrEquals("zenml_stack.test", "id", &stackID),
+					resource.TestCheckResourceAttrPair(
+						"zenml_stack.test", "components.orchestrator",
+						"zenml_stack_component.orchestrator_b", "id",
+					),
+				),
+			},
+		},
+	})
+}
+
+func testAccCaptureResourceAttr(resourceName, attr string, dest *string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+
+		value, ok := rs.Primary.Attributes[attr]
+		if !ok {
+			return fmt.Errorf("attribute %s missing on resource %s", attr, resourceName)
+		}
+
+		*dest = value
+		return nil
+	}
+}
+
+func testAccCheckResourceAttrEquals(resourceName, attr string, expected *string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		rs, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found in state", resourceName)
+		}
+
+		value, ok := rs.Primary.Attributes[attr]
+		if !ok {
+			return fmt.Errorf("attribute %s missing on resource %s", attr, resourceName)
+		}
+
+		if value != *expected {
+			return fmt.Errorf("attribute %s on %s mismatch: got %q want %q", attr, resourceName, value, *expected)
+		}
+
+		return nil
+	}
 }
 
 func testAccStackConfig_basic() string {
@@ -65,7 +156,7 @@ resource "zenml_stack_component" "artifact_store" {
   name   = "test-store"
   type   = "artifact_store"
   flavor = "local"
-  
+
   configuration = {
     path = "/tmp/artifacts"
   }
@@ -79,12 +170,12 @@ resource "zenml_stack_component" "orchestrator" {
 
 resource "zenml_stack" "test" {
   name = "test-stack"
-  
+
   components = {
     "artifact_store" = zenml_stack_component.artifact_store.id
     "orchestrator"   = zenml_stack_component.orchestrator.id
   }
-  
+
   labels = {
     environment = "test"
   }
@@ -100,7 +191,7 @@ resource "zenml_stack_component" "artifact_store" {
   name   = "test-store"
   type   = "artifact_store"
   flavor = "local"
-  
+
   configuration = {
     path = "/tmp/artifacts"
   }
@@ -126,4 +217,50 @@ resource "zenml_stack" "test" {
   }
 }
 `, testAccProviderConfig())
+}
+
+func testAccStackConfig_withTwoOrchestrators(useSecond bool) string {
+	orchestratorRef := "zenml_stack_component.orchestrator_a.id"
+	if useSecond {
+		orchestratorRef = "zenml_stack_component.orchestrator_b.id"
+	}
+
+	return fmt.Sprintf(`
+%s
+
+resource "zenml_stack_component" "artifact_store" {
+  name   = "test-store"
+  type   = "artifact_store"
+  flavor = "local"
+
+  configuration = {
+    path = "/tmp/artifacts"
+  }
+}
+
+resource "zenml_stack_component" "orchestrator_a" {
+  name   = "test-orchestrator-a"
+  type   = "orchestrator"
+  flavor = "local"
+}
+
+resource "zenml_stack_component" "orchestrator_b" {
+  name   = "test-orchestrator-b"
+  type   = "orchestrator"
+  flavor = "local"
+}
+
+resource "zenml_stack" "test" {
+  name = "test-stack"
+
+  components = {
+    artifact_store = zenml_stack_component.artifact_store.id
+    orchestrator   = %s
+  }
+
+  labels = {
+    environment = "test"
+  }
+}
+`, testAccProviderConfig(), orchestratorRef)
 }

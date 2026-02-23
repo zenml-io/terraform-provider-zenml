@@ -9,6 +9,7 @@ description: |-
 
 Manages a ZenML stack, which is a collection of components that define the infrastructure for your ML pipelines.
 
+
 ## Example Usage
 
 ```hcl
@@ -68,6 +69,10 @@ resource "zenml_stack" "my_stack" {
   * `feature_store`
   * `image_builder`
 * `labels` - (Optional) A map of labels to associate with the stack.
+
+## Update Behavior
+
+Updating stack labels, name, or component references is performed in place whenever supported by the ZenML API. This preserves the stack ID and avoids transient outages caused by deleting and recreating the stack during `terraform apply`.
 
 ## Attributes Reference
 
