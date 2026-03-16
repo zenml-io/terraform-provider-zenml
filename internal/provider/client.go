@@ -23,6 +23,19 @@ type ListParams struct {
 	Filter   map[string]string
 }
 
+func normalizeListParams(params *ListParams) *ListParams {
+	if params == nil {
+		return &ListParams{Page: 1, PageSize: 100}
+	}
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 100
+	}
+	return params
+}
+
 type Client struct {
 	ServerURL       string
 	APIKey          string
@@ -50,6 +63,15 @@ func NewClient(serverURL, apiKey string, apiToken string) *Client {
 		APITokenExpires: nil,
 		HTTPClient:      httpClient,
 	}
+}
+
+// invalidateToken atomically clears the cached token so the next call to
+// getAPIToken will re-authenticate using the API key.
+func (c *Client) invalidateToken() {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	c.APIToken = ""
+	c.APITokenExpires = nil
 }
 
 func (c *Client) getAPIToken(ctx context.Context) (string, error) {
@@ -168,12 +190,17 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 	url := fmt.Sprintf("%s%s", c.ServerURL, path)
 	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, url))
-	if body != nil {
-		prettyJSON, _ := json.MarshalIndent(body, "", "  ")
-		tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", prettyJSON))
+	if jsonBody != nil {
+		var indented bytes.Buffer
+		if json.Indent(&indented, jsonBody, "", "  ") == nil {
+			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", indented.String()))
+		}
 	}
 
 	// Allow one retry on 401 when an API key is available for re-authentication.
+	// Note: retryablehttp handles transport-level retries (connection errors, 5xx,
+	// 429) transparently. This loop only retries on 401 (auth expiry), which
+	// retryablehttp does not retry. The two layers are complementary, not multiplicative.
 	maxAttempts := 1
 	if c.APIKey != "" {
 		maxAttempts = 2
@@ -229,10 +256,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		// On 401, invalidate the cached token and retry with fresh credentials.
 		if resp.StatusCode == http.StatusUnauthorized && attempt < maxAttempts-1 {
 			tflog.Info(ctx, "[ZENML] Got 401, refreshing token and retrying")
-			c.tokenMu.Lock()
-			c.APIToken = ""
-			c.APITokenExpires = nil
-			c.tokenMu.Unlock()
+			c.invalidateToken()
 			continue
 		}
 
@@ -326,20 +350,7 @@ func (c *Client) DeleteStack(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[StackResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
@@ -425,20 +436,7 @@ func (c *Client) DeleteComponent(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStackComponents(ctx context.Context, params *ListParams) (*Page[ComponentResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
@@ -538,20 +536,7 @@ func (c *Client) DeleteServiceConnector(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) (*Page[ServiceConnectorResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
