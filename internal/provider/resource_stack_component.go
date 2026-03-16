@@ -438,9 +438,70 @@ func (r *StackComponentResource) Delete(ctx context.Context, req resource.Delete
 
 	tflog.Trace(ctx, "deleting stack component")
 
-	err := r.client.DeleteComponent(ctx, data.ID.ValueString())
+	stacks, err := r.client.ListStacksByComponent(ctx, data.ID.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete stack component, got error: %s", err))
+		resp.Diagnostics.AddError(
+			"Client Error",
+			fmt.Sprintf("Unable to list stacks using component: %s", err),
+		)
+		return
+	}
+
+	componentType := data.Type.ValueString()
+
+	if len(stacks) > 0 {
+		if requiredComponentTypes[componentType] {
+			stackNames := make([]string, len(stacks))
+			for i, s := range stacks {
+				stackNames[i] = s.Name
+			}
+			resp.Diagnostics.AddError(
+				"Component In Use",
+				fmt.Sprintf(
+					"Cannot delete %s component '%s' because it is used by %d "+
+						"stack(s): %v. The %s component type is required and "+
+						"cannot be removed from stacks. The stack(s) must be "+
+						"replaced or deleted first.",
+					componentType,
+					data.Name.ValueString(),
+					len(stacks),
+					stackNames,
+					componentType,
+				),
+			)
+			return
+		}
+
+		componentID := data.ID.ValueString()
+		for _, stack := range stacks {
+			tflog.Info(ctx, fmt.Sprintf(
+				"Removing %s component %s from stack %s before deletion",
+				componentType,
+				componentID,
+				stack.Name,
+			))
+			if err := r.client.RemoveComponentFromStack(
+				ctx, stack.ID, componentID,
+			); err != nil {
+				resp.Diagnostics.AddError(
+					"Client Error",
+					fmt.Sprintf(
+						"Unable to remove component from stack %s: %s",
+						stack.Name,
+						err,
+					),
+				)
+				return
+			}
+		}
+	}
+
+	err = r.client.DeleteComponent(ctx, data.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Client Error",
+			fmt.Sprintf("Unable to delete stack component: %s", err),
+		)
 		return
 	}
 }

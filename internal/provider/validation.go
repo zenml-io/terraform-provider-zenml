@@ -100,6 +100,13 @@ var (
 		"deployer",
 		"log_store",
 	}
+
+	// requiredComponentTypes lists component types that cannot be removed from
+	// a stack. These are mandatory for every ZenML stack.
+	requiredComponentTypes = map[string]bool{
+		"orchestrator":   true,
+		"artifact_store": true,
+	}
 )
 
 func NormalizeServerConfig(raw map[string]interface{}) map[string]string {

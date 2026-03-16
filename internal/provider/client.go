@@ -288,6 +288,67 @@ func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[Stac
 	return &result, nil
 }
 
+// ListStacksByComponent returns all stacks that use the given component.
+func (c *Client) ListStacksByComponent(
+	ctx context.Context,
+	componentID string,
+) ([]StackResponse, error) {
+	params := &ListParams{
+		Filter: map[string]string{
+			"component_id": componentID,
+		},
+	}
+	page, err := c.ListStacks(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// RemoveComponentFromStack removes a specific component by ID from a stack.
+// Since stacks can have multiple components of the same type, this filters
+// out only the component with the matching ID.
+func (c *Client) RemoveComponentFromStack(
+	ctx context.Context,
+	stackID string,
+	componentID string,
+) error {
+	stack, err := c.GetStack(ctx, stackID)
+	if err != nil {
+		return err
+	}
+	if stack == nil {
+		return fmt.Errorf("stack %s not found", stackID)
+	}
+
+	newComponents := make(map[string][]string)
+	for compType, compList := range stack.Metadata.Components {
+		var filteredIDs []string
+		for _, comp := range compList {
+			if comp.ID != componentID {
+				filteredIDs = append(filteredIDs, comp.ID)
+			}
+		}
+		if len(filteredIDs) > 0 {
+			newComponents[compType] = filteredIDs
+		}
+	}
+
+	labels := make(map[string]string)
+	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+		labels = stack.Metadata.Labels
+	}
+
+	update := StackUpdate{
+		Name:       stack.Name,
+		Components: newComponents,
+		Labels:     labels,
+	}
+
+	_, err = c.UpdateStack(ctx, stackID, update)
+	return err
+}
+
 // Component operations...
 func (c *Client) CreateComponent(ctx context.Context, component ComponentRequest) (*ComponentResponse, error) {
 	endpoint := "/api/v1/components"

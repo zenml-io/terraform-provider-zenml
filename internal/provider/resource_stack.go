@@ -21,6 +21,62 @@ var _ resource.Resource = &StackResource{}
 var _ resource.ResourceWithImportState = &StackResource{}
 var _ resource.ResourceWithConfigValidators = &StackResource{}
 
+// requiresReplaceIfRequiredComponentChanges is a plan modifier that triggers
+// resource replacement when required component types (orchestrator,
+// artifact_store) change. These components cannot be removed from a stack, so
+// changing them requires replacing the entire stack.
+type requiresReplaceIfRequiredComponentChanges struct{}
+
+var _ planmodifier.Map = requiresReplaceIfRequiredComponentChanges{}
+
+func (m requiresReplaceIfRequiredComponentChanges) Description(
+	ctx context.Context,
+) string {
+	return "Requires replacement when orchestrator or artifact_store changes"
+}
+
+func (m requiresReplaceIfRequiredComponentChanges) MarkdownDescription(
+	ctx context.Context,
+) string {
+	return "Requires replacement when orchestrator or artifact_store changes"
+}
+
+func (m requiresReplaceIfRequiredComponentChanges) PlanModifyMap(
+	ctx context.Context,
+	req planmodifier.MapRequest,
+	resp *planmodifier.MapResponse,
+) {
+	if req.StateValue.IsNull() || req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
+		return
+	}
+
+	var oldComponents, newComponents map[string]types.String
+	resp.Diagnostics.Append(req.StateValue.ElementsAs(ctx, &oldComponents, false)...)
+	resp.Diagnostics.Append(req.PlanValue.ElementsAs(ctx, &newComponents, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	for requiredType := range requiredComponentTypes {
+		oldVal := oldComponents[requiredType]
+		newVal := newComponents[requiredType]
+
+		oldID := ""
+		if !oldVal.IsNull() && !oldVal.IsUnknown() {
+			oldID = oldVal.ValueString()
+		}
+		newID := ""
+		if !newVal.IsNull() && !newVal.IsUnknown() {
+			newID = newVal.ValueString()
+		}
+
+		if oldID != newID {
+			resp.RequiresReplace = true
+			return
+		}
+	}
+}
+
 func NewStackResource() resource.Resource {
 	return &StackResource{}
 }
@@ -57,9 +113,14 @@ func (r *StackResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				Required:            true,
 			},
 			"components": schema.MapAttribute{
-				MarkdownDescription: "Map of component types to component IDs",
-				ElementType:         types.StringType,
-				Required:            true,
+				MarkdownDescription: "Map of component types to component IDs. " +
+					"Changing the orchestrator or artifact_store will force " +
+					"stack replacement since these are required components.",
+				ElementType: types.StringType,
+				Required:    true,
+				PlanModifiers: []planmodifier.Map{
+					requiresReplaceIfRequiredComponentChanges{},
+				},
 			},
 			"labels": schema.MapAttribute{
 				MarkdownDescription: "Labels for the stack",

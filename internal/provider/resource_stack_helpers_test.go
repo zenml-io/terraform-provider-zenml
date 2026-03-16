@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -103,5 +104,126 @@ func TestFlattenStringMapToTFMap_EmptiesExistingLabels(t *testing.T) {
 	}
 	if !gotPtr.IsNull() {
 		t.Fatalf("expected null labels map, got %#v", *gotPtr)
+	}
+}
+
+func TestRequiredComponentTypes_ContainsExpectedTypes(t *testing.T) {
+	if !requiredComponentTypes["orchestrator"] {
+		t.Error("orchestrator should be a required component type")
+	}
+	if !requiredComponentTypes["artifact_store"] {
+		t.Error("artifact_store should be a required component type")
+	}
+	if requiredComponentTypes["container_registry"] {
+		t.Error("container_registry should NOT be a required component type")
+	}
+	if requiredComponentTypes["image_builder"] {
+		t.Error("image_builder should NOT be a required component type")
+	}
+}
+
+func TestRequiresReplaceIfRequiredComponentChanges_OrchestratorChange(t *testing.T) {
+	ctx := context.Background()
+	modifier := requiresReplaceIfRequiredComponentChanges{}
+
+	stateValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("old-orch-id"),
+		"artifact_store": types.StringValue("store-id"),
+	})
+	planValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("new-orch-id"),
+		"artifact_store": types.StringValue("store-id"),
+	})
+
+	req := planmodifier.MapRequest{
+		StateValue: stateValue,
+		PlanValue:  planValue,
+	}
+	resp := &planmodifier.MapResponse{}
+
+	modifier.PlanModifyMap(ctx, req, resp)
+
+	if !resp.RequiresReplace {
+		t.Error("expected RequiresReplace=true when orchestrator changes")
+	}
+}
+
+func TestRequiresReplaceIfRequiredComponentChanges_ArtifactStoreChange(t *testing.T) {
+	ctx := context.Background()
+	modifier := requiresReplaceIfRequiredComponentChanges{}
+
+	stateValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("orch-id"),
+		"artifact_store": types.StringValue("old-store-id"),
+	})
+	planValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("orch-id"),
+		"artifact_store": types.StringValue("new-store-id"),
+	})
+
+	req := planmodifier.MapRequest{
+		StateValue: stateValue,
+		PlanValue:  planValue,
+	}
+	resp := &planmodifier.MapResponse{}
+
+	modifier.PlanModifyMap(ctx, req, resp)
+
+	if !resp.RequiresReplace {
+		t.Error("expected RequiresReplace=true when artifact_store changes")
+	}
+}
+
+func TestRequiresReplaceIfRequiredComponentChanges_OptionalComponentChange(t *testing.T) {
+	ctx := context.Background()
+	modifier := requiresReplaceIfRequiredComponentChanges{}
+
+	stateValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":       types.StringValue("orch-id"),
+		"artifact_store":     types.StringValue("store-id"),
+		"container_registry": types.StringValue("old-registry-id"),
+	})
+	planValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":       types.StringValue("orch-id"),
+		"artifact_store":     types.StringValue("store-id"),
+		"container_registry": types.StringValue("new-registry-id"),
+	})
+
+	req := planmodifier.MapRequest{
+		StateValue: stateValue,
+		PlanValue:  planValue,
+	}
+	resp := &planmodifier.MapResponse{}
+
+	modifier.PlanModifyMap(ctx, req, resp)
+
+	if resp.RequiresReplace {
+		t.Error("expected RequiresReplace=false when only optional component changes")
+	}
+}
+
+func TestRequiresReplaceIfRequiredComponentChanges_NoChange(t *testing.T) {
+	ctx := context.Background()
+	modifier := requiresReplaceIfRequiredComponentChanges{}
+
+	stateValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("orch-id"),
+		"artifact_store": types.StringValue("store-id"),
+	})
+	planValue, _ := types.MapValue(types.StringType, map[string]attr.Value{
+		"orchestrator":   types.StringValue("orch-id"),
+		"artifact_store": types.StringValue("store-id"),
+	})
+
+	req := planmodifier.MapRequest{
+		StateValue: stateValue,
+		PlanValue:  planValue,
+	}
+	resp := &planmodifier.MapResponse{}
+
+	modifier.PlanModifyMap(ctx, req, resp)
+
+	if resp.RequiresReplace {
+		t.Error("expected RequiresReplace=false when nothing changes")
 	}
 }
