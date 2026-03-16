@@ -11,7 +11,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -21,6 +20,62 @@ import (
 var _ resource.Resource = &StackResource{}
 var _ resource.ResourceWithImportState = &StackResource{}
 var _ resource.ResourceWithConfigValidators = &StackResource{}
+
+// requiresReplaceIfRequiredComponentChanges is a plan modifier that triggers
+// resource replacement when required component types (orchestrator,
+// artifact_store) change. These components cannot be removed from a stack, so
+// changing them requires replacing the entire stack.
+type requiresReplaceIfRequiredComponentChanges struct{}
+
+var _ planmodifier.Map = requiresReplaceIfRequiredComponentChanges{}
+
+func (m requiresReplaceIfRequiredComponentChanges) Description(
+	ctx context.Context,
+) string {
+	return "Requires replacement when orchestrator or artifact_store changes"
+}
+
+func (m requiresReplaceIfRequiredComponentChanges) MarkdownDescription(
+	ctx context.Context,
+) string {
+	return "Requires replacement when orchestrator or artifact_store changes"
+}
+
+func (m requiresReplaceIfRequiredComponentChanges) PlanModifyMap(
+	ctx context.Context,
+	req planmodifier.MapRequest,
+	resp *planmodifier.MapResponse,
+) {
+	if req.StateValue.IsNull() || req.PlanValue.IsNull() || req.PlanValue.IsUnknown() {
+		return
+	}
+
+	var oldComponents, newComponents map[string]types.String
+	resp.Diagnostics.Append(req.StateValue.ElementsAs(ctx, &oldComponents, false)...)
+	resp.Diagnostics.Append(req.PlanValue.ElementsAs(ctx, &newComponents, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	for requiredType := range requiredComponentTypes {
+		oldVal := oldComponents[requiredType]
+		newVal := newComponents[requiredType]
+
+		oldID := ""
+		if !oldVal.IsNull() && !oldVal.IsUnknown() {
+			oldID = oldVal.ValueString()
+		}
+		newID := ""
+		if !newVal.IsNull() && !newVal.IsUnknown() {
+			newID = newVal.ValueString()
+		}
+
+		if oldID != newID {
+			resp.RequiresReplace = true
+			return
+		}
+	}
+}
 
 func NewStackResource() resource.Resource {
 	return &StackResource{}
@@ -58,11 +113,13 @@ func (r *StackResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				Required:            true,
 			},
 			"components": schema.MapAttribute{
-				MarkdownDescription: "Map of component types to component IDs",
-				ElementType:         types.StringType,
-				Required:            true,
+				MarkdownDescription: "Map of component types to component IDs. " +
+					"Changing the orchestrator or artifact_store will force " +
+					"stack replacement since these are required components.",
+				ElementType: types.StringType,
+				Required:    true,
 				PlanModifiers: []planmodifier.Map{
-					mapplanmodifier.RequiresReplace(),
+					requiresReplaceIfRequiredComponentChanges{},
 				},
 			},
 			"labels": schema.MapAttribute{
@@ -106,7 +163,7 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 			return
 		}
 
-		for compType, _ := range componentElements {
+		for compType, compID := range componentElements {
 			valid := false
 			for _, validType := range validComponentTypes {
 				if compType == validType {
@@ -121,6 +178,18 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 					fmt.Sprintf("Invalid component type %q. Valid types are: %s", compType, strings.Join(validComponentTypes, ", ")),
 				)
 				continue
+			}
+
+			if compID.IsUnknown() || compID.IsNull() {
+				continue
+			}
+
+			if strings.TrimSpace(compID.ValueString()) == "" {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("components").AtMapKey(compType),
+					"Invalid component ID",
+					"Component IDs must be non-empty strings when provided; null and unknown values are allowed during planning.",
+				)
 			}
 		}
 	}
@@ -156,67 +225,155 @@ func (r *StackResource) populateStackModel(
 	data.Name = types.StringValue(stack.Name)
 
 	if stack.Metadata != nil {
-		if stack.Metadata.Components != nil {
-			componentMap := make(map[string]attr.Value)
-
-			// First, preserve null components from existing state
-			if !data.Components.IsNull() && !data.Components.IsUnknown() {
-				existingComponents := make(map[string]types.String)
-				diags.Append(
-					data.Components.ElementsAs(
-						ctx,
-						&existingComponents,
-						false,
-					)...,
-				)
-				if diags.HasError() {
-					return
-				}
-
-				// Keep only the null entries
-				for compType, compValue := range existingComponents {
-					if compValue.IsNull() {
-						componentMap[compType] = types.StringNull()
-					}
-				}
-			}
-
-			// Apply components from API response on top of nulls
-			for compType, compList := range stack.Metadata.Components {
-				if len(compList) > 0 {
-					componentMap[compType] = types.StringValue(
-						compList[0].ID,
-					)
-				}
-			}
-
-			componentValue, componentDiags := types.MapValue(
-				types.StringType,
-				componentMap,
-			)
-			diags.Append(componentDiags...)
-			if !diags.HasError() {
-				data.Components = componentValue
-			}
+		componentValue := r.flattenStackComponentsToTFMap(ctx, stack.Metadata.Components, data.Components, diags)
+		if diags.HasError() {
+			return
+		}
+		if componentValue != nil {
+			data.Components = *componentValue
 		}
 
-		if len(stack.Metadata.Labels) > 0 {
-			labelMap := make(map[string]attr.Value)
-			for k, v := range stack.Metadata.Labels {
-				labelMap[k] = types.StringValue(v)
-			}
-			labelValue, labelDiags := types.MapValue(
-				types.StringType,
-				labelMap,
-			)
-			diags.Append(labelDiags...)
-			if !diags.HasError() {
-				data.Labels = labelValue
-			}
-		} else if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
-			data.Labels = types.MapNull(types.StringType)
+		labelValue := flattenStringMapToTFMap(stack.Metadata.Labels, data.Labels, diags)
+		if diags.HasError() {
+			return
+		}
+		if labelValue != nil {
+			data.Labels = *labelValue
 		}
 	}
+}
+
+func expandStackComponentsFromTF(
+	ctx context.Context,
+	components types.Map,
+	diags *diag.Diagnostics,
+) map[string][]string {
+	result := make(map[string][]string)
+	if components.IsNull() || components.IsUnknown() {
+		return result
+	}
+
+	componentElements := make(map[string]types.String, len(components.Elements()))
+	diags.Append(components.ElementsAs(ctx, &componentElements, false)...)
+	if diags.HasError() {
+		return nil
+	}
+
+	for compType, compID := range componentElements {
+		if compID.IsNull() || compID.IsUnknown() {
+			continue
+		}
+
+		id := strings.TrimSpace(compID.ValueString())
+		if id == "" {
+			continue
+		}
+		result[compType] = []string{id}
+	}
+
+	return result
+}
+
+func expandStringMapFromTF(
+	ctx context.Context,
+	values types.Map,
+	diags *diag.Diagnostics,
+) map[string]string {
+	result := make(map[string]string)
+	if values.IsNull() || values.IsUnknown() {
+		return result
+	}
+
+	elements := make(map[string]types.String, len(values.Elements()))
+	diags.Append(values.ElementsAs(ctx, &elements, false)...)
+	if diags.HasError() {
+		return nil
+	}
+
+	for k, v := range elements {
+		if v.IsNull() || v.IsUnknown() {
+			continue
+		}
+		result[k] = v.ValueString()
+	}
+
+	return result
+}
+
+func flattenStringMapToTFMap(
+	values map[string]string,
+	existing types.Map,
+	diags *diag.Diagnostics,
+) *types.Map {
+	if len(values) == 0 {
+		if !existing.IsNull() && len(existing.Elements()) > 0 {
+			nullMap := types.MapNull(types.StringType)
+			return &nullMap
+		}
+		return nil
+	}
+
+	valueMap := make(map[string]attr.Value, len(values))
+	for k, v := range values {
+		valueMap[k] = types.StringValue(v)
+	}
+
+	tfMap, tfDiags := types.MapValue(types.StringType, valueMap)
+	diags.Append(tfDiags...)
+	if diags.HasError() {
+		return nil
+	}
+
+	return &tfMap
+}
+
+func (r *StackResource) flattenStackComponentsToTFMap(
+	ctx context.Context,
+	apiComponents map[string][]ComponentResponse,
+	existing types.Map,
+	diags *diag.Diagnostics,
+) *types.Map {
+	if apiComponents == nil {
+		return nil
+	}
+
+	componentMap := make(map[string]attr.Value)
+
+	// Preserve explicit null placeholders from prior state without inventing new ones.
+	if !existing.IsNull() && !existing.IsUnknown() {
+		existingComponents := make(map[string]types.String)
+		diags.Append(existing.ElementsAs(ctx, &existingComponents, false)...)
+		if diags.HasError() {
+			return nil
+		}
+
+		for compType, compValue := range existingComponents {
+			if compValue.IsNull() {
+				componentMap[compType] = types.StringNull()
+			}
+		}
+	}
+
+	for compType, compList := range apiComponents {
+		if len(compList) == 0 {
+			continue
+		}
+
+		componentID := strings.TrimSpace(compList[0].ID)
+		if componentID == "" {
+			continue
+		}
+
+		componentMap[compType] = types.StringValue(componentID)
+	}
+
+	tfMap, tfDiags := types.MapValue(types.StringType, componentMap)
+	diags.Append(tfDiags...)
+	if diags.HasError() {
+		return nil
+	}
+
+	return &tfMap
 }
 
 func (r *StackResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -228,32 +385,14 @@ func (r *StackResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	components := make(map[string][]string)
-	if !data.Components.IsNull() {
-		componentElements := make(map[string]types.String, len(data.Components.Elements()))
-		resp.Diagnostics.Append(data.Components.ElementsAs(ctx, &componentElements, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		for compType, compID := range componentElements {
-			if !compID.IsNull() && !compID.IsUnknown() && compID.ValueString() != "" {
-				components[compType] = []string{compID.ValueString()}
-			}
-		}
+	components := expandStackComponentsFromTF(ctx, data.Components, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	labels := make(map[string]string)
-	if !data.Labels.IsNull() {
-		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
-		resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		for k, v := range labelElements {
-			labels[k] = v.ValueString()
-		}
+	labels := expandStringMapFromTF(ctx, data.Labels, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	stackReq := StackRequest{
@@ -318,32 +457,14 @@ func (r *StackResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	components := make(map[string][]string)
-	if !data.Components.IsNull() {
-		componentElements := make(map[string]types.String, len(data.Components.Elements()))
-		resp.Diagnostics.Append(data.Components.ElementsAs(ctx, &componentElements, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		for compType, compID := range componentElements {
-			if !compID.IsNull() && !compID.IsUnknown() && compID.ValueString() != "" {
-				components[compType] = []string{compID.ValueString()}
-			}
-		}
+	components := expandStackComponentsFromTF(ctx, data.Components, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	labels := make(map[string]string)
-	if !data.Labels.IsNull() {
-		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
-		resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		for k, v := range labelElements {
-			labels[k] = v.ValueString()
-		}
+	labels := expandStringMapFromTF(ctx, data.Labels, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	updateReq := StackUpdate{

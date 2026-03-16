@@ -175,6 +175,8 @@ resource "zenml_stack" "ml_stack" {
 }
 ```
 
+`zenml_stack` updates are applied in place (including component map changes) to preserve the ZenML stack identity and avoid delete/recreate behavior during re-applies. Snapshot rebuilds may still be required when stack changes introduce new runtime dependencies.
+
 See the [examples](./examples/) directory for more complete examples.
 
 ## Development
