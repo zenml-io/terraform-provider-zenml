@@ -143,31 +143,18 @@ func (v stackComponentConfigValidator) ValidateResource(ctx context.Context, req
 		return
 	}
 
-	if missingConnectorIDWithResource(data.ConnectorID, data.ConnectorResourceID) {
+	// Check if connector_resource_id is set but connector_id is not. Unknown
+	// connector_id values are allowed because they can be resolved during apply.
+	if !data.ConnectorResourceID.IsNull() && !data.ConnectorResourceID.IsUnknown() &&
+		data.ConnectorResourceID.ValueString() != "" &&
+		(data.ConnectorID.IsNull() ||
+			(!data.ConnectorID.IsUnknown() && data.ConnectorID.ValueString() == "")) {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("connector_id"),
 			"Missing connector_id",
 			"connector_id must be set when connector_resource_id is specified",
 		)
 	}
-}
-
-// missingConnectorIDWithResource returns true only when a component has a
-// concrete connector_resource_id but no concrete connector_id. Terraform may
-// know that connector_id is configured while its value is still unknown until
-// apply, so unknown connector IDs must pass this plan-time validation.
-func missingConnectorIDWithResource(connectorID, connectorResourceID types.String) bool {
-	if connectorResourceID.IsNull() ||
-		connectorResourceID.IsUnknown() ||
-		connectorResourceID.ValueString() == "" {
-		return false
-	}
-
-	if connectorID.IsUnknown() {
-		return false
-	}
-
-	return connectorID.IsNull() || connectorID.ValueString() == ""
 }
 
 func (r *StackComponentResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {

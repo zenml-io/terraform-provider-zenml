@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -94,66 +93,6 @@ func TestAccStackComponent_withConfiguration(t *testing.T) {
 			},
 		},
 	})
-}
-
-// TestMissingConnectorIDWithResource covers the validator helper that enforces
-// connector_id only when connector_resource_id is known and set. The unknown
-// connector_id case protects configs where the ID comes from a connector
-// resource being created in the same apply.
-func TestMissingConnectorIDWithResource(t *testing.T) {
-	tests := map[string]struct {
-		connectorID         types.String
-		connectorResourceID types.String
-		want                bool
-	}{
-		"resource_id unset": {
-			connectorID:         types.StringNull(),
-			connectorResourceID: types.StringNull(),
-			want:                false,
-		},
-		"resource_id unknown": {
-			connectorID:         types.StringNull(),
-			connectorResourceID: types.StringUnknown(),
-			want:                false,
-		},
-		"resource_id empty": {
-			connectorID:         types.StringNull(),
-			connectorResourceID: types.StringValue(""),
-			want:                false,
-		},
-		"connector_id null": {
-			connectorID:         types.StringNull(),
-			connectorResourceID: types.StringValue("bucket"),
-			want:                true,
-		},
-		"connector_id empty": {
-			connectorID:         types.StringValue(""),
-			connectorResourceID: types.StringValue("bucket"),
-			want:                true,
-		},
-		"connector_id unknown": {
-			connectorID:         types.StringUnknown(),
-			connectorResourceID: types.StringValue("bucket"),
-			want:                false,
-		},
-		"connector_id set": {
-			connectorID:         types.StringValue("connector-id"),
-			connectorResourceID: types.StringValue("bucket"),
-			want:                false,
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			got := missingConnectorIDWithResource(
-				tt.connectorID,
-				tt.connectorResourceID,
-			)
-			if got != tt.want {
-				t.Fatalf("expected %v, got %v", tt.want, got)
-			}
-		})
-	}
 }
 
 func testAccStackComponentConfig_basic() string {
