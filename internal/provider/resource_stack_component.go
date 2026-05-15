@@ -143,10 +143,12 @@ func (v stackComponentConfigValidator) ValidateResource(ctx context.Context, req
 		return
 	}
 
-	// Check if connector_resource_id is set but connector_id is not
+	// Check if connector_resource_id is set but connector_id is not. Unknown
+	// connector_id values are allowed because they can be resolved during apply.
 	if !data.ConnectorResourceID.IsNull() && !data.ConnectorResourceID.IsUnknown() &&
 		data.ConnectorResourceID.ValueString() != "" &&
-		(data.ConnectorID.IsNull() || data.ConnectorID.IsUnknown() || data.ConnectorID.ValueString() == "") {
+		(data.ConnectorID.IsNull() ||
+			(!data.ConnectorID.IsUnknown() && data.ConnectorID.ValueString() == "")) {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("connector_id"),
 			"Missing connector_id",
