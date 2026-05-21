@@ -8,8 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -19,25 +23,61 @@ type ListParams struct {
 	Filter   map[string]string
 }
 
+func normalizeListParams(params *ListParams) *ListParams {
+	if params == nil {
+		return &ListParams{Page: 1, PageSize: 100}
+	}
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 100
+	}
+	return params
+}
+
 type Client struct {
 	ServerURL       string
 	APIKey          string
 	APIToken        string
 	APITokenExpires *time.Time
 	HTTPClient      *http.Client
+	tokenMu         sync.Mutex
 }
 
 func NewClient(serverURL, apiKey string, apiToken string) *Client {
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 4
+	retryClient.Logger = nil
+
+	httpClient := retryClient.StandardClient()
+	// No hard client timeout — context deadlines from Terraform resource
+	// timeouts handle cancellation. A fixed timeout here would conflict
+	// with retryablehttp backoff and risk killing long-running operations
+	// (e.g. service connector verification) prematurely.
+
 	return &Client{
-		ServerURL:       serverURL,
+		ServerURL:       strings.TrimRight(serverURL, "/"),
 		APIKey:          apiKey,
 		APIToken:        apiToken,
 		APITokenExpires: nil,
-		HTTPClient:      &http.Client{},
+		HTTPClient:      httpClient,
 	}
 }
 
+// invalidateToken atomically clears the cached token so the next call to
+// getAPIToken will re-authenticate using the API key.
+func (c *Client) invalidateToken() {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	c.APIToken = ""
+	c.APITokenExpires = nil
+}
+
 func (c *Client) getAPIToken(ctx context.Context) (string, error) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
 	if c.APIToken != "" {
 		if c.APITokenExpires == nil {
 			// No expiry, so just return the token
@@ -75,7 +115,8 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	// Get a new token from the API key using the password flow
 	data := url.Values{}
 	data.Set("password", c.APIKey)
-	loginReq, err := http.NewRequest(
+	loginReq, err := http.NewRequestWithContext(
+		ctx,
 		"POST",
 		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
 		bytes.NewBufferString(data.Encode()),
@@ -90,6 +131,11 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	}
 	defer loginResp.Body.Close()
 
+	if loginResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(loginResp.Body)
+		return "", fmt.Errorf("authentication failed: login request returned status %d: %s", loginResp.StatusCode, string(body))
+	}
+
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
@@ -99,79 +145,132 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	}
 
 	c.APIToken = tokenResp.AccessToken
-	// Set the expiry time to 5 minutes before the actual expiry, to account for
-	// clock skew and to avoid using an expired token when making requests
-	expiresAt := time.Now().Add(
-		time.Duration(tokenResp.ExpiresIn-300) * time.Second,
-	)
-	c.APITokenExpires = &expiresAt
+	if tokenResp.ExpiresIn <= 0 {
+		// Server returned no expiry or an invalid value — treat the token
+		// as non-expiring so we don't force a refresh on every request.
+		c.APITokenExpires = nil
+	} else {
+		// Set the expiry time with a buffer before the actual expiry, to account
+		// for clock skew and to avoid using an expired token when making requests.
+		// Clamp the buffer so short-lived tokens don't get a negative expiry.
+		buffer := 300
+		if tokenResp.ExpiresIn < buffer {
+			buffer = tokenResp.ExpiresIn / 2
+		}
+		expiresAt := time.Now().Add(
+			time.Duration(tokenResp.ExpiresIn-buffer) * time.Second,
+		)
+		c.APITokenExpires = &expiresAt
+	}
 
 	return c.APIToken, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
-	var bodyReader io.Reader
-
+	// Marshal body once — reused if we need to retry on 401.
+	var jsonBody []byte
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var err error
+		jsonBody, err = json.Marshal(body)
 		if err != nil {
 			return nil, 0, fmt.Errorf("error marshaling request body: %v", err)
 		}
-		bodyReader = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error creating request: %v", err)
+	// Generate idempotency key once for POST requests — reused across retries
+	// so the server deduplicates transport-level and auth-refresh retries alike.
+	//
+	// NOTE: This relies on the ZenML server having request_deduplication enabled
+	// (the default). If a server admin disables it, retried POST requests could
+	// create duplicate resources. See the ZenML RequestManager for details.
+	var idempotencyKey string
+	if method == "POST" {
+		idempotencyKey = uuid.NewString()
 	}
 
-	accessToken, err := c.getAPIToken(ctx)
-
-	if err != nil {
-		return nil, 0, fmt.Errorf("error getting API token: %v", err)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, req.URL.String()))
-	if body != nil {
-		prettyJSON, _ := json.MarshalIndent(body, "", "  ")
-		tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", prettyJSON))
-	}
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error making request: %v", err)
-	}
-
-	// Read the response body once and store it in a variable
-	defer resp.Body.Close()
-	resp_body, _ := io.ReadAll(resp.Body)
-
-	// Print the response body as JSON if available
-	if len(resp_body) > 0 {
-		var prettyBody map[string]interface{}
-		if err := json.Unmarshal(resp_body, &prettyBody); err == nil {
-			prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
-			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body (JSON):\n%s", prettyJSON))
-		} else {
-			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body:\n%s", string(resp_body)))
+	url := fmt.Sprintf("%s%s", c.ServerURL, path)
+	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, url))
+	if jsonBody != nil {
+		var indented bytes.Buffer
+		if json.Indent(&indented, jsonBody, "", "  ") == nil {
+			tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", indented.String()))
 		}
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("[ZENML] Response status: %d", resp.StatusCode))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(resp_body))
+	// Allow one retry on 401 when an API key is available for re-authentication.
+	// Note: retryablehttp handles transport-level retries (connection errors, 5xx,
+	// 429) transparently. This loop only retries on 401 (auth expiry), which
+	// retryablehttp does not retry. The two layers are complementary, not multiplicative.
+	maxAttempts := 1
+	if c.APIKey != "" {
+		maxAttempts = 2
 	}
 
-	// Re-wrap the body so that the caller can still read it
-	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var bodyReader io.Reader
+		if jsonBody != nil {
+			bodyReader = bytes.NewReader(jsonBody)
+		}
 
-	return resp, resp.StatusCode, nil
+		req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error creating request: %v", err)
+		}
+
+		accessToken, err := c.getAPIToken(ctx)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error getting API token: %v", err)
+		}
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+		if jsonBody != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if idempotencyKey != "" {
+			req.Header.Set("Idempotency-Key", idempotencyKey)
+		}
+
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error making request: %v", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, 0, fmt.Errorf("error reading response body: %v", err)
+		}
+
+		if len(respBody) > 0 {
+			var prettyBody map[string]interface{}
+			if err := json.Unmarshal(respBody, &prettyBody); err == nil {
+				prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
+				tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body (JSON):\n%s", prettyJSON))
+			} else {
+				tflog.Debug(ctx, fmt.Sprintf("[ZENML] Response body:\n%s", string(respBody)))
+			}
+		}
+
+		tflog.Info(ctx, fmt.Sprintf("[ZENML] Response status: %d", resp.StatusCode))
+
+		// On 401, invalidate the cached token and retry with fresh credentials.
+		if resp.StatusCode == http.StatusUnauthorized && attempt < maxAttempts-1 {
+			tflog.Info(ctx, "[ZENML] Got 401, refreshing token and retrying")
+			c.invalidateToken()
+			continue
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		// Re-wrap the body so that the caller can still read it
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		return resp, resp.StatusCode, nil
+	}
+
+	// Unreachable in practice, but satisfies the compiler.
+	return nil, 0, fmt.Errorf("exhausted request attempts")
 }
 
 // GetServerInfo fetches server info to determine version and capabilities
@@ -251,20 +350,7 @@ func (c *Client) DeleteStack(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStacks(ctx context.Context, params *ListParams) (*Page[StackResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
@@ -411,20 +497,7 @@ func (c *Client) DeleteComponent(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListStackComponents(ctx context.Context, params *ListParams) (*Page[ComponentResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
@@ -524,20 +597,7 @@ func (c *Client) DeleteServiceConnector(ctx context.Context, id string) error {
 }
 
 func (c *Client) ListServiceConnectors(ctx context.Context, params *ListParams) (*Page[ServiceConnectorResponse], error) {
-	if params == nil {
-		params = &ListParams{
-			Page:     1,
-			PageSize: 100,
-		}
-	} else {
-		if params.Page <= 0 {
-			params.Page = 1
-		}
-		if params.PageSize <= 0 {
-			params.PageSize = 100
-		}
-	}
-
+	params = normalizeListParams(params)
 	query := url.Values{}
 	query.Add("page", fmt.Sprintf("%d", params.Page))
 	query.Add("size", fmt.Sprintf("%d", params.PageSize))
