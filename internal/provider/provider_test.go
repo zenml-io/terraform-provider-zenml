@@ -81,6 +81,7 @@ func testAccProviderConfig() string {
 provider "zenml" {
   server_url = "` + os.Getenv("ZENML_SERVER_URL") + `"
   api_key    = "` + os.Getenv("ZENML_API_KEY") + `"
+  api_token  = "` + os.Getenv("ZENML_API_TOKEN") + `"
 }
 `
 }

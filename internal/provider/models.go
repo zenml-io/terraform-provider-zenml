@@ -272,3 +272,32 @@ type ProjectUpdate struct {
 	DisplayName *string `json:"display_name,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
+
+// SecretRequest represents a request to create a ZenML secret.
+type SecretRequest struct {
+	Name    string            `json:"name"`
+	Private bool              `json:"private"`
+	Values  map[string]string `json:"values"`
+}
+
+// SecretUpdate replaces the configurable attributes of a ZenML secret.
+type SecretUpdate struct {
+	Name    string            `json:"name"`
+	Private bool              `json:"private"`
+	Values  map[string]string `json:"values"`
+}
+
+// SecretResponse represents a secret returned by the ZenML API.
+type SecretResponse struct {
+	ID   string              `json:"id"`
+	Name string              `json:"name"`
+	Body *SecretResponseBody `json:"body,omitempty"`
+}
+
+type SecretResponseBody struct {
+	Created string             `json:"created"`
+	Updated string             `json:"updated"`
+	UserID  *string            `json:"user_id,omitempty"`
+	Private bool               `json:"private"`
+	Values  map[string]*string `json:"values"`
+}
