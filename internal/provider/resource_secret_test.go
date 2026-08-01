@@ -110,7 +110,7 @@ func testAccSecretPreCheck(t *testing.T) {
 		t.Fatalf("acceptance tests require permission to read secrets: %s", err)
 	}
 	if secret == nil || secret.Body == nil || secret.Body.Values["value"] == nil {
-		t.Fatal("acceptance tests require READ_SECRET_VALUE permission")
+		t.Fatal("acceptance tests require an account that can read secret values")
 	}
 }
 

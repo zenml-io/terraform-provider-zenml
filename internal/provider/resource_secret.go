@@ -129,7 +129,7 @@ func (r *SecretResource) populateSecretModel(
 			diags.AddAttributeError(
 				path.Root("values"),
 				"Unable to Read Secret Values",
-				"The provider principal needs READ_SECRET_VALUE permission to manage or import ZenML secrets.",
+				"ZenML did not return all values for this secret. Ensure the account configured for the provider can read secret values.",
 			)
 			return
 		}

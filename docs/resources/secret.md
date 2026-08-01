@@ -51,9 +51,7 @@ resource "zenml_stack_component" "databricks" {
 
 * `name` - (Required) The unique name of the secret within its scope.
 * `values` - (Required, Sensitive) A map of values stored in the secret. Removing a key from this map removes it from the ZenML secret.
-* `private` - (Optional) Whether only the user that created the secret can access it. Defaults to `false`. Public secrets are generally preferable for IaC because private secrets are owned by the service account that runs Terraform.
-
-The provider principal must have permission to create, update, and delete secrets, including `READ_SECRET_VALUE`. Terraform cannot refresh or import a secret when its values are redacted.
+* `private` - (Optional) Whether only the user that created the secret can access it. Defaults to `false`.
 
 ## Attributes Reference
 
@@ -69,5 +67,3 @@ Secrets can be imported by UUID:
 ```shell
 terraform import zenml_secret.example 12345678-1234-1234-1234-123456789012
 ```
-
-Import requires `READ_SECRET_VALUE` permission because all values must be loaded into Terraform state.
