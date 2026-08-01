@@ -18,6 +18,15 @@ TestAccSecret_basic verifies the complete Terraform resource lifecycle:
 3. Update one value and remove another through full-replacement semantics.
 4. Import the secret by UUID and verify that the imported state matches.
 5. Delete the secret during Terraform's automatic test cleanup.
+
+It requires ZENML_SERVER_URL and either ZENML_API_KEY or ZENML_API_TOKEN for
+an active ZenML server account that can manage secrets.
+
+Run with:
+
+export ZENML_SERVER_URL=""
+export ZENML_API_KEY=""
+TF_ACC=1 go test ./internal/provider -run '^TestAccSecret_basic$' -v -count=1 -timeout 20m
 */
 
 func TestAccSecret_basic(t *testing.T) {
