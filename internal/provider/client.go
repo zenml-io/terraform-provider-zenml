@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -111,6 +112,8 @@ or use the ZENML_API_KEY environment variable to set the API key.
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
 	var bodyReader io.Reader
+	// secrets endpoints are sensitive and should not be logged
+	sensitivePayload := strings.HasPrefix(path, "/api/v1/secrets")
 
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -137,7 +140,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	}
 
 	tflog.Info(ctx, fmt.Sprintf("[ZENML] Making request: %s %s", method, req.URL.String()))
-	if body != nil {
+	if body != nil && !sensitivePayload {
 		prettyJSON, _ := json.MarshalIndent(body, "", "  ")
 		tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", prettyJSON))
 	}
@@ -152,7 +155,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	resp_body, _ := io.ReadAll(resp.Body)
 
 	// Print the response body as JSON if available
-	if len(resp_body) > 0 {
+	if len(resp_body) > 0 && !sensitivePayload {
 		var prettyBody map[string]interface{}
 		if err := json.Unmarshal(resp_body, &prettyBody); err == nil {
 			prettyJSON, _ := json.MarshalIndent(prettyBody, "", "  ")
@@ -165,6 +168,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	tflog.Info(ctx, fmt.Sprintf("[ZENML] Response status: %d", resp.StatusCode))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if sensitivePayload {
+			return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d", resp.StatusCode)
+		}
 		return nil, resp.StatusCode, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(resp_body))
 	}
 
@@ -652,5 +658,65 @@ func (c *Client) DeleteProject(ctx context.Context, nameOrID string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	return nil
+}
+
+// Secret operations...
+func (c *Client) CreateSecret(ctx context.Context, secret SecretRequest) (*SecretResponse, error) {
+	resp, _, err := c.doRequest(ctx, "POST", "/api/v1/secrets", secret)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result SecretResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding secret response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetSecret(ctx context.Context, id string) (*SecretResponse, error) {
+	resp, status, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/secrets/%s", id), nil)
+	if err != nil {
+		// treats HTTP 404 as "the resource no longer exists"
+		if status == 404 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result SecretResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding secret response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateSecret(ctx context.Context, id string, secret SecretUpdate) (*SecretResponse, error) {
+	resp, _, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/v1/secrets/%s", id), secret)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result SecretResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error decoding secret response: %v", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteSecret(ctx context.Context, id string) error {
+	resp, status, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/v1/secrets/%s", id), nil)
+	if err != nil {
+		// treats HTTP 404 as the secret no longer exists or was never created
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+	resp.Body.Close()
 	return nil
 }

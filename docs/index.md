@@ -11,6 +11,7 @@ The ZenML provider allows you to manage [ZenML](https://zenml.io) resources usin
 - ZenML Stacks
 - Stack Components
 - Service Connectors
+- Secrets
 
 ## Requirements
 
@@ -33,6 +34,20 @@ provider "zenml" {
   # Configuration options will be loaded from environment variables:
   # ZENML_SERVER_URL
   # ZENML_API_KEY
+}
+
+variable "example_api_key" {
+  type      = string
+  sensitive = true
+}
+
+# Create a secret
+resource "zenml_secret" "example" {
+  name = "example-credentials"
+
+  values = {
+    api_key = var.example_api_key
+  }
 }
 
 # Create a service connector
@@ -133,6 +148,7 @@ provider "zenml" {
 
 ## Resources
 
+* [zenml_secret](resources/secret.md) - Manages secrets
 * [zenml_service_connector](resources/service_connector.md) - Manages service connectors for external services
 * [zenml_stack_component](resources/stack_component.md) - Manages stack components
 * [zenml_stack](resources/stack.md) - Manages stacks

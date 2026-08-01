@@ -268,6 +268,7 @@ func (p *ZenMLProvider) Resources(ctx context.Context) []func() resource.Resourc
 		NewStackComponentResource,
 		NewServiceConnectorResource,
 		NewProjectResource,
+		NewSecretResource,
 	}
 }
 
