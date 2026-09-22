@@ -9,8 +9,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,7 +33,8 @@ const (
 	idleConnTimeout = 3 * time.Second
 	requestTimeout  = 5 * time.Minute
 	// Number of attempts for requests that fail with a connection-level error
-	// (e.g. EOF or connection reset) before any HTTP response is received.
+	// (e.g. EOF or connection reset) before any HTTP response is received. See
+	// sendRequest for which requests are safe to retry.
 	maxRequestAttempts = 3
 	retryBackoff       = 500 * time.Millisecond
 )
@@ -79,13 +82,41 @@ func isRetryableConnError(err error) bool {
 	return errors.As(err, &opErr) && opErr.Op == "dial" && !opErr.Timeout()
 }
 
+// isIdempotentMethod reports whether replaying a request with this method is
+// safe even if the server already processed the original. PUT requests are full
+// updates and deletes treat a 404 as success, so replays converge.
+func isIdempotentMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
 // sendRequest sends req and retries it when it fails with a connection-level
 // error. HTTP error responses are returned as-is and never retried.
+//
+// Non-idempotent requests (e.g. POST creates) are only retried if the request
+// was never fully written to the connection. Once it was sent, an error such as
+// EOF does not tell whether the server processed it, and replaying a create
+// that succeeded would fail with a name conflict and orphan the resource.
 func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
 	for attempt := 1; ; attempt++ {
-		resp, err := c.HTTPClient.Do(req)
+		// Set from the transport's write goroutine.
+		var requestWritten atomic.Bool
+		trace := &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				if info.Err == nil {
+					requestWritten.Store(true)
+				}
+			},
+		}
+		resp, err := c.HTTPClient.Do(req.WithContext(httptrace.WithClientTrace(ctx, trace)))
 		if err == nil || attempt >= maxRequestAttempts || !isRetryableConnError(err) {
 			return resp, err
+		}
+		if requestWritten.Load() && !isIdempotentMethod(req.Method) {
+			return nil, err
 		}
 		tflog.Warn(ctx, fmt.Sprintf(
 			"[ZENML] Request %s %s failed with a connection error (attempt %d/%d), retrying: %v",
