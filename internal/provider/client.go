@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -19,6 +22,19 @@ type ListParams struct {
 	PageSize int
 	Filter   map[string]string
 }
+
+const (
+	// The ZenML server (uvicorn) closes idle keep-alive connections after 5
+	// seconds by default. Idle connections must be dropped on the client side
+	// before that, otherwise a request can be sent on a connection that the
+	// server is closing at the same time and fail with EOF.
+	idleConnTimeout = 3 * time.Second
+	requestTimeout  = 5 * time.Minute
+	// Number of attempts for requests that fail with a connection-level error
+	// (e.g. EOF or connection reset) before any HTTP response is received.
+	maxRequestAttempts = 3
+	retryBackoff       = 500 * time.Millisecond
+)
 
 type Client struct {
 	ServerURL       string
@@ -34,7 +50,66 @@ func NewClient(serverURL, apiKey string, apiToken string) *Client {
 		APIKey:          apiKey,
 		APIToken:        apiToken,
 		APITokenExpires: nil,
-		HTTPClient:      &http.Client{},
+		HTTPClient:      newHTTPClient(),
+	}
+}
+
+func newHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.IdleConnTimeout = idleConnTimeout
+	return &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout,
+	}
+}
+
+// isRetryableConnError reports whether err is a connection-level failure where
+// the connection was dropped or refused. Timeouts are deliberately excluded:
+// the server may still be processing the request and retrying a create could
+// result in a conflict.
+func isRetryableConnError(err error) bool {
+	if errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial" && !opErr.Timeout()
+}
+
+// sendRequest sends req and retries it when it fails with a connection-level
+// error. HTTP error responses are returned as-is and never retried.
+func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	for attempt := 1; ; attempt++ {
+		resp, err := c.HTTPClient.Do(req)
+		if err == nil || attempt >= maxRequestAttempts || !isRetryableConnError(err) {
+			return resp, err
+		}
+		tflog.Warn(ctx, fmt.Sprintf(
+			"[ZENML] Request %s %s failed with a connection error (attempt %d/%d), retrying: %v",
+			req.Method, req.URL.String(), attempt, maxRequestAttempts, err,
+		))
+
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(time.Duration(attempt) * retryBackoff):
+		}
+
+		retryReq := req.Clone(ctx)
+		if req.GetBody != nil {
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, err
+			}
+			retryReq.Body = body
+		} else if req.Body != nil && req.Body != http.NoBody {
+			// The body was consumed and cannot be replayed.
+			return nil, err
+		}
+		req = retryReq
 	}
 }
 
@@ -76,7 +151,8 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	// Get a new token from the API key using the password flow
 	data := url.Values{}
 	data.Set("password", c.APIKey)
-	loginReq, err := http.NewRequest(
+	loginReq, err := http.NewRequestWithContext(
+		ctx,
 		"POST",
 		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
 		bytes.NewBufferString(data.Encode()),
@@ -85,7 +161,7 @@ or use the ZENML_API_KEY environment variable to set the API key.
 		return "", fmt.Errorf("error creating login request: %v", err)
 	}
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	loginResp, err := c.HTTPClient.Do(loginReq)
+	loginResp, err := c.sendRequest(ctx, loginReq)
 	if err != nil {
 		return "", fmt.Errorf("error making login request: %v", err)
 	}
@@ -123,7 +199,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		bodyReader = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("%s%s", c.ServerURL, path), bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error creating request: %v", err)
 	}
@@ -145,7 +221,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		tflog.Debug(ctx, fmt.Sprintf("[ZENML] Request body (JSON):\n%s", prettyJSON))
 	}
 
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.sendRequest(ctx, req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error making request: %v", err)
 	}
