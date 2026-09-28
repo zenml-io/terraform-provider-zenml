@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 )
 
@@ -37,47 +39,35 @@ func newDroppingServer(t *testing.T, drops int32) (*httptest.Server, *int32, *[]
 	return server, &calls, &bodies
 }
 
-// countingTransport counts round trips, including ones that never reach a
-// server.
-type countingTransport struct {
-	next  http.RoundTripper
-	calls int32
+// processedThenResetTransport models a request being consumed before the client
+// receives a connection reset instead of the response.
+type processedThenResetTransport struct {
+	processed int32
 }
 
-func (t *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	atomic.AddInt32(&t.calls, 1)
-	return t.next.RoundTrip(req)
-}
-
-func TestDoRequest_DoesNotReplaySentPost(t *testing.T) {
-	server, calls, _ := newDroppingServer(t, 1)
-	client := NewClient(server.URL, "", "token")
-
-	_, _, err := client.doRequest(context.Background(), "POST", "/api/v1/components", map[string]string{"name": "orchestrator"})
-	if err == nil {
-		t.Fatal("expected an error: a POST that was sent must not be replayed")
+func (t *processedThenResetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
 	}
-	if got := atomic.LoadInt32(calls); got != 1 {
-		t.Fatalf("expected 1 attempt, got %d", got)
-	}
+	atomic.AddInt32(&t.processed, 1)
+	return nil, syscall.ECONNRESET
 }
 
-func TestDoRequest_RetriesUnsentPost(t *testing.T) {
-	// A closed server refuses the connection, so the request is never written.
-	server := httptest.NewServer(http.NotFoundHandler())
-	serverURL := server.URL
-	server.Close()
-
-	client := NewClient(serverURL, "", "token")
-	transport := &countingTransport{next: client.HTTPClient.Transport}
+func TestDoRequest_DoesNotReplayPostAfterAmbiguousWriteError(t *testing.T) {
+	transport := &processedThenResetTransport{}
+	client := NewClient("http://localhost", "", "token")
 	client.HTTPClient.Transport = transport
 
 	_, _, err := client.doRequest(context.Background(), "POST", "/api/v1/components", map[string]string{"name": "orchestrator"})
 	if err == nil {
-		t.Fatal("expected an error when the server is unreachable")
+		t.Fatal("expected the connection reset to be returned")
 	}
-	if got := atomic.LoadInt32(&transport.calls); got != maxRequestAttempts {
-		t.Fatalf("expected %d attempts, got %d", maxRequestAttempts, got)
+	if !strings.Contains(err.Error(), syscall.ECONNRESET.Error()) {
+		t.Fatalf("expected connection reset error, got %v", err)
+	}
+	if got := atomic.LoadInt32(&transport.processed); got != 1 {
+		t.Fatalf("POST processed %d times; want 1", got)
 	}
 }
 

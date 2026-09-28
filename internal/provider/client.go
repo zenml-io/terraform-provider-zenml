@@ -9,10 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -67,9 +65,8 @@ func newHTTPClient() *http.Client {
 }
 
 // isRetryableConnError reports whether err is a connection-level failure where
-// the connection was dropped or refused. Timeouts are deliberately excluded:
-// the server may still be processing the request and retrying a create could
-// result in a conflict.
+// the connection was dropped or refused. Timeouts are deliberately excluded
+// because the server may still be processing the request.
 func isRetryableConnError(err error) bool {
 	if errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
@@ -83,8 +80,8 @@ func isRetryableConnError(err error) bool {
 }
 
 // isIdempotentMethod reports whether replaying a request with this method is
-// safe even if the server already processed the original. PUT requests are full
-// updates and deletes treat a 404 as success, so replays converge.
+// safe even if the server already processed the original. Current PUT payloads
+// repeat deterministic assignments and DELETE callers treat 404 as success.
 func isIdempotentMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
@@ -93,30 +90,20 @@ func isIdempotentMethod(method string) bool {
 	return false
 }
 
-// sendRequest sends req and retries it when it fails with a connection-level
-// error. HTTP error responses are returned as-is and never retried.
+// sendRequest sends req and retries idempotent methods when they fail with a
+// connection-level error. HTTP error responses are returned as-is.
 //
-// Non-idempotent requests (e.g. POST creates) are only retried if the request
-// was never fully written to the connection. Once it was sent, an error such as
-// EOF does not tell whether the server processed it, and replaying a create
-// that succeeded would fail with a name conflict and orphan the resource.
+// Non-idempotent requests (e.g. POST creates) are never retried because a
+// connection error does not prove that the server did not process the request.
 func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	if !isIdempotentMethod(req.Method) {
+		return c.HTTPClient.Do(req)
+	}
+
 	for attempt := 1; ; attempt++ {
-		// Set from the transport's write goroutine.
-		var requestWritten atomic.Bool
-		trace := &httptrace.ClientTrace{
-			WroteRequest: func(info httptrace.WroteRequestInfo) {
-				if info.Err == nil {
-					requestWritten.Store(true)
-				}
-			},
-		}
-		resp, err := c.HTTPClient.Do(req.WithContext(httptrace.WithClientTrace(ctx, trace)))
+		resp, err := c.HTTPClient.Do(req)
 		if err == nil || attempt >= maxRequestAttempts || !isRetryableConnError(err) {
 			return resp, err
-		}
-		if requestWritten.Load() && !isIdempotentMethod(req.Method) {
-			return nil, err
 		}
 		tflog.Warn(ctx, fmt.Sprintf(
 			"[ZENML] Request %s %s failed with a connection error (attempt %d/%d), retrying: %v",
@@ -125,7 +112,7 @@ func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Resp
 
 		select {
 		case <-ctx.Done():
-			return nil, err
+			return nil, ctx.Err()
 		case <-time.After(time.Duration(attempt) * retryBackoff):
 		}
 
