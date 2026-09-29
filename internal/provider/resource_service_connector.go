@@ -275,7 +275,7 @@ func (r *ServiceConnectorResource) buildServiceConnectorRequest(
 		return nil
 	}
 
-	var configuration map[string]interface{} = make(map[string]interface{})
+	configuration := make(map[string]interface{})
 	if !data.Configuration.IsNull() && len(data.Configuration.Elements()) > 0 {
 		configElements := make(map[string]types.String, len(data.Configuration.Elements()))
 		diags.Append(data.Configuration.ElementsAs(ctx, &configElements, false)...)
@@ -288,7 +288,7 @@ func (r *ServiceConnectorResource) buildServiceConnectorRequest(
 		}
 	}
 
-	var labels map[string]string = make(map[string]string)
+	labels := make(map[string]string)
 	if !data.Labels.IsNull() && len(data.Labels.Elements()) > 0 {
 		labelElements := make(map[string]types.String, len(data.Labels.Elements()))
 		diags.Append(data.Labels.ElementsAs(ctx, &labelElements, false)...)
