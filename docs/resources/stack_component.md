@@ -31,6 +31,24 @@ resource "zenml_stack_component" "artifact_store" {
 }
 ```
 
+### Sandbox
+
+```hcl
+resource "zenml_stack_component" "sandbox" {
+  name   = "my-k8s-sandbox"
+  type   = "sandbox"
+  flavor = "kubernetes"
+
+  configuration = {
+    kubernetes_namespace = "zenml-sandboxes"
+  }
+
+  # Optional: Authenticate to the cluster via a Kubernetes service connector
+  connector_id          = "connector-uuid"
+  connector_resource_id = "cluster-name"
+}
+```
+
 ## Argument Reference
 
 * `name` - (Required) The name of the stack component.
@@ -49,6 +67,7 @@ resource "zenml_stack_component" "artifact_store" {
   * `model_registry` - Model registry
   * `deployer` - Deployer
   * `log_store` - Log store
+  * `sandbox` - Sandbox
 * `flavor` - (Required) The flavor of the stack component (e.g., "local", "gcp", "aws"). To find out which flavors are supported by a component type, run `zenml stack-component describe-type <component-type>` or visit the [Component Gallery section of the ZenML documentation](https://docs.zenml.io/stack-components/component-guide) for more information.
 * `configuration` - (Optional, Sensitive) A map of configuration key-value pairs for the component.
 * `connector_id` - (Optional) The ID of the service connector to use with this component. Must be specified together with `connector_resource_id`.

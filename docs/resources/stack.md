@@ -68,6 +68,8 @@ resource "zenml_stack" "my_stack" {
   * `data_validator`
   * `feature_store`
   * `image_builder`
+  * `model_registry`
+  * `sandbox`
 * `labels` - (Optional) A map of labels to associate with the stack.
 
 ## Update Behavior

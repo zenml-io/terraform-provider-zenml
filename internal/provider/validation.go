@@ -99,6 +99,7 @@ var (
 		"model_registry",
 		"deployer",
 		"log_store",
+		"sandbox",
 	}
 
 	// requiredComponentTypes lists component types that cannot be removed from
