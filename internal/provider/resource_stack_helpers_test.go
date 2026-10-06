@@ -227,3 +227,34 @@ func TestRequiresReplaceIfRequiredComponentChanges_NoChange(t *testing.T) {
 		t.Error("expected RequiresReplace=false when nothing changes")
 	}
 }
+
+func TestValidComponentTypes_IncludesSandbox(t *testing.T) {
+	ctx := context.Background()
+
+	found := false
+	for _, componentType := range validComponentTypes {
+		if componentType == "sandbox" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q to be a valid component type, got %v", "sandbox", validComponentTypes)
+	}
+
+	input, diags := types.MapValue(types.StringType, map[string]attr.Value{
+		"sandbox": types.StringValue("sandbox-1"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating input map: %v", diags)
+	}
+
+	var testDiags diag.Diagnostics
+	got := expandStackComponentsFromTF(ctx, input, &testDiags)
+	if testDiags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", testDiags)
+	}
+	if len(got["sandbox"]) != 1 || got["sandbox"][0] != "sandbox-1" {
+		t.Fatalf("unexpected sandbox expansion: %#v", got["sandbox"])
+	}
+}
