@@ -29,6 +29,16 @@ install: build
 docs:
 	go generate ./...
 
+# Run linter
+.PHONY: lint
+lint:
+	golangci-lint run
+
+# Run formatter check
+.PHONY: fmt
+fmt:
+	golangci-lint fmt
+
 # Clean build artifacts
 .PHONY: clean
 clean:

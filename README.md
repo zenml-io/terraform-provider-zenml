@@ -1,6 +1,6 @@
 # Terraform Provider for ZenML
 
-[![Tests](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/test.yml/badge.svg)](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/test.yml)
+[![CI](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/ci.yml/badge.svg)](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/ci.yml)
 [![Release](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml/badge.svg)](https://github.com/zenml-io/terraform-provider-zenml/actions/workflows/release.yml)
 
 This Terraform provider allows you to manage ZenML resources using Infrastructure as Code. It provides the ability to manage:

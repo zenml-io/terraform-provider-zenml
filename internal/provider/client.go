@@ -346,7 +346,7 @@ func (c *Client) DeleteStack(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
@@ -506,7 +506,7 @@ func (c *Client) DeleteComponent(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
@@ -619,7 +619,7 @@ func (c *Client) DeleteServiceConnector(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
