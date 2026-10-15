@@ -2,8 +2,11 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -120,10 +123,28 @@ func NormalizeServerConfig(raw map[string]interface{}) map[string]string {
 		case string:
 			normalized[k] = vv
 		default:
-			normalized[k] = fmt.Sprintf("%v", vv)
+			if encoded, err := json.Marshal(vv); err == nil {
+				normalized[k] = string(encoded)
+			} else {
+				normalized[k] = fmt.Sprintf("%v", vv)
+			}
 		}
 	}
 	return normalized
+}
+
+func DecodeConfigValue(value string) interface{} {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return value
+	}
+	decoder := json.NewDecoder(bytes.NewReader([]byte(trimmed)))
+	decoder.UseNumber()
+	var decoded interface{}
+	if err := decoder.Decode(&decoded); err != nil || decoder.More() {
+		return value
+	}
+	return decoded
 }
 
 func MergeOrCompareConfiguration(
