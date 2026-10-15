@@ -271,10 +271,7 @@ func (r *StackComponentResource) Create(ctx context.Context, req resource.Create
 		}
 
 		for k, v := range configElements {
-			// Always treat configuration values as strings
-			// The ZenML API expects string values, and any JSON encoding
-			// should be handled by the user in their Terraform configuration
-			configuration[k] = v.ValueString()
+			configuration[k] = DecodeConfigValue(v.ValueString())
 		}
 	}
 
@@ -375,10 +372,7 @@ func (r *StackComponentResource) Update(ctx context.Context, req resource.Update
 		}
 
 		for k, v := range configElements {
-			// Always treat configuration values as strings
-			// The ZenML API expects string values, and any JSON encoding
-			// should be handled by the user in their Terraform configuration
-			configuration[k] = v.ValueString()
+			configuration[k] = DecodeConfigValue(v.ValueString())
 		}
 	}
 
