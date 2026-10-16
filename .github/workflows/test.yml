@@ -1,0 +1,87 @@
+# Build, lint and test the provider on every pull request and on main.
+name: Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Check go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - run: go build -v ./...
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go test -race -cover ./...
+
+  acceptance:
+    name: Acceptance tests
+    needs: [build, unit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Secrets are not available to pull requests from forks, so the
+    # acceptance tests only run for branches in this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Acceptance tests create real resources on a shared server; never run two
+    # at once.
+    concurrency:
+      group: acceptance-tests
+      cancel-in-progress: false
+    env:
+      TF_ACC: '1'
+      ZENML_SERVER_URL: ${{ secrets.ZENML_SERVER_URL }}
+      ZENML_API_KEY: ${{ secrets.ZENML_API_KEY }}
+    steps:
+      - name: Check credentials are configured
+        id: creds
+        run: |
+          if [ -z "$ZENML_SERVER_URL" ] || [ -z "$ZENML_API_KEY" ]; then
+            echo "::warning::ZENML_SERVER_URL or ZENML_API_KEY secret is not set, skipping acceptance tests"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+        if: steps.creds.outputs.skip != 'true'
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        if: steps.creds.outputs.skip != 'true'
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.creds.outputs.skip != 'true'
+        with:
+          terraform_wrapper: false
+      - name: Run acceptance tests
+        if: steps.creds.outputs.skip != 'true'
+        run: go test ./internal/... -v -timeout 50m

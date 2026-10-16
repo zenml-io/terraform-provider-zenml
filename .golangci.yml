@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+  exclusions:
+    presets:
+      - std-error-handling
+  settings:
+    staticcheck:
+      checks:
+        - default
+        # Many error messages are user-facing Terraform diagnostics that
+        # start with a capital letter or span several lines.
+        - -ST1005
+
+formatters:
+  enable:
+    - gofmt
