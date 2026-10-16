@@ -107,9 +107,10 @@ func (r *ServiceConnectorResource) Schema(ctx context.Context, req resource.Sche
 				},
 			},
 			"configuration": schema.MapAttribute{
-				MarkdownDescription: "Configuration for the service connector",
+				MarkdownDescription: "Configuration for the service connector, including credentials",
 				ElementType:         types.StringType,
 				Optional:            true,
+				Sensitive:           true,
 			},
 			"labels": schema.MapAttribute{
 				MarkdownDescription: "Labels for the service connector",

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,6 +36,10 @@ const (
 	// sendRequest for which requests are safe to retry.
 	maxRequestAttempts = 3
 	retryBackoff       = 500 * time.Millisecond
+	// Refresh tokens this long before they expire, to account for clock skew
+	// and requests that are in flight while the token expires.
+	tokenExpiryMargin = 5 * time.Minute
+	loginPath         = "/api/v1/login"
 )
 
 type Client struct {
@@ -43,6 +48,10 @@ type Client struct {
 	APIToken        string
 	APITokenExpires *time.Time
 	HTTPClient      *http.Client
+
+	// tokenMu guards APIToken and APITokenExpires. Terraform runs resource
+	// operations concurrently and they all share one client.
+	tokenMu sync.Mutex
 }
 
 func NewClient(serverURL, apiKey string, apiToken string) *Client {
@@ -90,13 +99,26 @@ func isIdempotentMethod(method string) bool {
 	return false
 }
 
+// isRetryableRequest reports whether req can be replayed safely. Logging in
+// is a POST but creates nothing, so it can be repeated.
+func isRetryableRequest(req *http.Request) bool {
+	return isIdempotentMethod(req.Method) || strings.HasSuffix(req.URL.Path, loginPath)
+}
+
+// isSensitivePath reports whether request and response bodies for path may
+// carry credentials and must not be logged.
+func isSensitivePath(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/secrets") ||
+		strings.HasPrefix(path, "/api/v1/service_connectors")
+}
+
 // sendRequest sends req and retries idempotent methods when they fail with a
 // connection-level error. HTTP error responses are returned as-is.
 //
 // Non-idempotent requests (e.g. POST creates) are never retried because a
 // connection error does not prove that the server did not process the request.
 func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
-	if !isIdempotentMethod(req.Method) {
+	if !isRetryableRequest(req) {
 		return c.HTTPClient.Do(req)
 	}
 
@@ -132,6 +154,9 @@ func (c *Client) sendRequest(ctx context.Context, req *http.Request) (*http.Resp
 }
 
 func (c *Client) getAPIToken(ctx context.Context) (string, error) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
 	if c.APIToken != "" {
 		if c.APITokenExpires == nil {
 			// No expiry, so just return the token
@@ -172,7 +197,7 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	loginReq, err := http.NewRequestWithContext(
 		ctx,
 		"POST",
-		fmt.Sprintf("%s/api/v1/login", c.ServerURL),
+		c.ServerURL+loginPath,
 		bytes.NewBufferString(data.Encode()),
 	)
 	if err != nil {
@@ -185,29 +210,50 @@ or use the ZENML_API_KEY environment variable to set the API key.
 	}
 	defer loginResp.Body.Close()
 
+	loginBody, err := io.ReadAll(loginResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading login response: %v", err)
+	}
+	if loginResp.StatusCode < 200 || loginResp.StatusCode >= 300 {
+		return "", fmt.Errorf(
+			"login to the ZenML server failed with status %d: %s. "+
+				"Check that the API key is valid and has not been deactivated or rotated",
+			loginResp.StatusCode, apiErrorDetail(loginBody),
+		)
+	}
+
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
-	if err := json.NewDecoder(loginResp.Body).Decode(&tokenResp); err != nil {
+	if err := json.Unmarshal(loginBody, &tokenResp); err != nil {
 		return "", fmt.Errorf("error decoding login response: %v", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("login to the ZenML server returned no access token")
 	}
 
 	c.APIToken = tokenResp.AccessToken
-	// Set the expiry time to 5 minutes before the actual expiry, to account for
-	// clock skew and to avoid using an expired token when making requests
-	expiresAt := time.Now().Add(
-		time.Duration(tokenResp.ExpiresIn-300) * time.Second,
-	)
-	c.APITokenExpires = &expiresAt
+	c.APITokenExpires = nil
+	if tokenResp.ExpiresIn > 0 {
+		lifetime := time.Duration(tokenResp.ExpiresIn) * time.Second
+		// Refresh early, but never treat a short-lived token as expired
+		// before it is used at all.
+		margin := tokenExpiryMargin
+		if margin > lifetime/2 {
+			margin = lifetime / 2
+		}
+		expiresAt := time.Now().Add(lifetime - margin)
+		c.APITokenExpires = &expiresAt
+	}
 
 	return c.APIToken, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, int, error) {
 	var bodyReader io.Reader
-	// secrets endpoints are sensitive and should not be logged
-	sensitivePayload := strings.HasPrefix(path, "/api/v1/secrets")
+	// Secrets and service connectors carry credentials and must not be logged.
+	sensitivePayload := isSensitivePath(path)
 
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -272,6 +318,23 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	resp.Body = io.NopCloser(bytes.NewReader(resp_body))
 
 	return resp, resp.StatusCode, nil
+}
+
+// apiErrorDetail extracts the "detail" message from a ZenML error response,
+// falling back to the raw body.
+func apiErrorDetail(body []byte) string {
+	var apiErr struct {
+		Detail interface{} `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Detail != nil {
+		if detail, ok := apiErr.Detail.(string); ok {
+			return detail
+		}
+		if encoded, err := json.Marshal(apiErr.Detail); err == nil {
+			return string(encoded)
+		}
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // GetServerInfo fetches server info to determine version and capabilities
@@ -421,6 +484,10 @@ func (c *Client) RemoveComponentFromStack(
 		return fmt.Errorf("stack %s not found", stackID)
 	}
 
+	if stack.Metadata == nil {
+		return fmt.Errorf("stack %s was returned without metadata", stackID)
+	}
+
 	newComponents := make(map[string][]string)
 	for compType, compList := range stack.Metadata.Components {
 		var filteredIDs []string
@@ -435,7 +502,7 @@ func (c *Client) RemoveComponentFromStack(
 	}
 
 	labels := make(map[string]string)
-	if stack.Metadata != nil && stack.Metadata.Labels != nil {
+	if stack.Metadata.Labels != nil {
 		labels = stack.Metadata.Labels
 	}
 

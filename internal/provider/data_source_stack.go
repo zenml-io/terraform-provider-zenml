@@ -137,7 +137,8 @@ func (d *StackDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 				"name": data.Name.ValueString(),
 			},
 		}
-		stacks, err := d.client.ListStacks(ctx, params)
+		var stacks *Page[StackResponse]
+		stacks, err = d.client.ListStacks(ctx, params)
 		if err == nil && len(stacks.Items) > 0 {
 			stack = &stacks.Items[0]
 		}

@@ -141,7 +141,8 @@ func (d *StackComponentDataSource) Read(ctx context.Context, req datasource.Read
 			params.Filter["type"] = data.Type.ValueString()
 		}
 
-		components, err := d.client.ListStackComponents(ctx, params)
+		var components *Page[ComponentResponse]
+		components, err = d.client.ListStackComponents(ctx, params)
 		if err == nil && len(components.Items) > 0 {
 			component = &components.Items[0]
 		}
