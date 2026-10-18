@@ -8,6 +8,8 @@ terraform-provider-zenml
 *.dll
 *.so
 *.dylib
+terraform-provider-zenml
+dist/
 
 # Test binary, built with `go test -c`
 *.test
@@ -32,3 +34,7 @@ go.work.sum
 #Example
 *.tfstate
 *.tfvars
+
+# ZenML specific
+design/
+.claude/
