@@ -258,3 +258,178 @@ func TestValidComponentTypes_IncludesSandbox(t *testing.T) {
 		t.Fatalf("unexpected sandbox expansion: %#v", got["sandbox"])
 	}
 }
+
+func TestExpandStackFromTF_MergesStepOperators(t *testing.T) {
+	ctx := context.Background()
+
+	components, diags := types.MapValue(types.StringType, map[string]attr.Value{
+		"artifact_store": types.StringValue("store-id"),
+		"orchestrator":   types.StringValue("orch-id"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating components map: %v", diags)
+	}
+	stepOperators, diags := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue("step-op-1"),
+		types.StringValue(" step-op-2 "),
+		types.StringValue(""),
+		types.StringUnknown(),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating step operators set: %v", diags)
+	}
+
+	data := &StackResourceModel{Components: components, StepOperators: stepOperators}
+
+	var testDiags diag.Diagnostics
+	got := expandStackFromTF(ctx, data, &testDiags)
+	if testDiags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", testDiags)
+	}
+
+	if len(got["artifact_store"]) != 1 || len(got["orchestrator"]) != 1 {
+		t.Fatalf("expected required components to be kept, got %#v", got)
+	}
+	gotStepOps := map[string]bool{}
+	for _, id := range got["step_operator"] {
+		gotStepOps[id] = true
+	}
+	if len(gotStepOps) != 2 || !gotStepOps["step-op-1"] || !gotStepOps["step-op-2"] {
+		t.Fatalf("unexpected step operator expansion: %#v", got["step_operator"])
+	}
+}
+
+func TestExpandStackFromTF_NullStepOperatorsKeepsSingleStepOperator(t *testing.T) {
+	ctx := context.Background()
+
+	components, diags := types.MapValue(types.StringType, map[string]attr.Value{
+		"artifact_store": types.StringValue("store-id"),
+		"orchestrator":   types.StringValue("orch-id"),
+		"step_operator":  types.StringValue("step-op-1"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating components map: %v", diags)
+	}
+
+	data := &StackResourceModel{
+		Components:    components,
+		StepOperators: types.SetNull(types.StringType),
+	}
+
+	var testDiags diag.Diagnostics
+	got := expandStackFromTF(ctx, data, &testDiags)
+	if testDiags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", testDiags)
+	}
+	if len(got["step_operator"]) != 1 || got["step_operator"][0] != "step-op-1" {
+		t.Fatalf("unexpected step operator expansion: %#v", got["step_operator"])
+	}
+}
+
+func stackResponseWithStepOperators(ids ...string) *StackResponse {
+	stepOps := make([]ComponentResponse, 0, len(ids))
+	for _, id := range ids {
+		stepOps = append(stepOps, ComponentResponse{ID: id})
+	}
+	return &StackResponse{
+		ID:   "stack-id",
+		Name: "stack",
+		Metadata: &StackResponseMetadata{
+			Components: map[string][]ComponentResponse{
+				"artifact_store": {{ID: "store-id"}},
+				"orchestrator":   {{ID: "orch-id"}},
+				"step_operator":  stepOps,
+			},
+		},
+	}
+}
+
+func decodeStringSet(t *testing.T, set types.Set) map[string]bool {
+	t.Helper()
+	var ids []string
+	if diags := set.ElementsAs(context.Background(), &ids, false); diags.HasError() {
+		t.Fatalf("unexpected diagnostics decoding set: %v", diags)
+	}
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		result[id] = true
+	}
+	return result
+}
+
+func TestPopulateStackModel_SingleStepOperatorStaysInComponents(t *testing.T) {
+	ctx := context.Background()
+	r := &StackResource{}
+	data := &StackResourceModel{
+		Components:    types.MapNull(types.StringType),
+		StepOperators: types.SetNull(types.StringType),
+		Labels:        types.MapNull(types.StringType),
+	}
+
+	var diags diag.Diagnostics
+	r.populateStackModel(ctx, stackResponseWithStepOperators("step-op-1"), data, &diags)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	if !data.StepOperators.IsNull() {
+		t.Fatalf("expected step_operators to stay null, got %v", data.StepOperators)
+	}
+	got := data.Components.Elements()["step_operator"]
+	if got == nil || got.(types.String).ValueString() != "step-op-1" {
+		t.Fatalf("expected components.step_operator=step-op-1, got %v", got)
+	}
+}
+
+func TestPopulateStackModel_MultipleStepOperatorsUseSet(t *testing.T) {
+	ctx := context.Background()
+	r := &StackResource{}
+	data := &StackResourceModel{
+		Components:    types.MapNull(types.StringType),
+		StepOperators: types.SetNull(types.StringType),
+		Labels:        types.MapNull(types.StringType),
+	}
+
+	var diags diag.Diagnostics
+	r.populateStackModel(ctx, stackResponseWithStepOperators("step-op-1", "step-op-2"), data, &diags)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	if _, ok := data.Components.Elements()["step_operator"]; ok {
+		t.Fatalf("expected step_operator to be absent from components, got %v", data.Components)
+	}
+	got := decodeStringSet(t, data.StepOperators)
+	if len(got) != 2 || !got["step-op-1"] || !got["step-op-2"] {
+		t.Fatalf("unexpected step_operators: %v", got)
+	}
+}
+
+func TestPopulateStackModel_ConfiguredStepOperatorSetIsKept(t *testing.T) {
+	ctx := context.Background()
+	r := &StackResource{}
+	existingSet, diags := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue("step-op-1"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating set: %v", diags)
+	}
+	data := &StackResourceModel{
+		Components:    types.MapNull(types.StringType),
+		StepOperators: existingSet,
+		Labels:        types.MapNull(types.StringType),
+	}
+
+	r.populateStackModel(ctx, stackResponseWithStepOperators("step-op-1"), data, &diags)
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags)
+	}
+
+	if _, ok := data.Components.Elements()["step_operator"]; ok {
+		t.Fatalf("expected step_operator to be absent from components, got %v", data.Components)
+	}
+	got := decodeStringSet(t, data.StepOperators)
+	if len(got) != 1 || !got["step-op-1"] {
+		t.Fatalf("unexpected step_operators: %v", got)
+	}
+}

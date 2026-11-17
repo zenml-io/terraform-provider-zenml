@@ -135,6 +135,54 @@ func TestAccStack_updateOptionalComponentInPlace(t *testing.T) {
 	})
 }
 
+func TestAccStack_multipleStepOperators(t *testing.T) {
+	var stackID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccStackConfig_withStepOperators(false),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCaptureResourceAttr("zenml_stack.test", "id", &stackID),
+					resource.TestCheckResourceAttr("zenml_stack.test", "step_operators.#", "2"),
+					resource.TestCheckTypeSetElemAttrPair(
+						"zenml_stack.test", "step_operators.*",
+						"zenml_stack_component.step_operator_a", "id",
+					),
+					resource.TestCheckTypeSetElemAttrPair(
+						"zenml_stack.test", "step_operators.*",
+						"zenml_stack_component.step_operator_b", "id",
+					),
+					resource.TestCheckNoResourceAttr("zenml_stack.test", "components.step_operator"),
+				),
+			},
+			{
+				Config:             testAccStackConfig_withStepOperators(false),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
+			},
+			{
+				Config: testAccStackConfig_withStepOperators(true),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckResourceAttrEquals("zenml_stack.test", "id", &stackID),
+					resource.TestCheckResourceAttr("zenml_stack.test", "step_operators.#", "3"),
+					resource.TestCheckTypeSetElemAttrPair(
+						"zenml_stack.test", "step_operators.*",
+						"zenml_stack_component.step_operator_c", "id",
+					),
+				),
+			},
+			{
+				ResourceName:      "zenml_stack.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
 func testAccCaptureResourceAttr(resourceName, attr string, dest *string) resource.TestCheckFunc {
 	return func(state *terraform.State) error {
 		rs, ok := state.RootModule().Resources[resourceName]
@@ -364,4 +412,71 @@ resource "zenml_stack" "test" {
   }
 }
 `, testAccProviderConfig(), imageBuilderRef)
+}
+
+func testAccStackConfig_withStepOperators(addThird bool) string {
+	stepOperators := `[
+    zenml_stack_component.step_operator_a.id,
+    zenml_stack_component.step_operator_b.id,
+  ]`
+	if addThird {
+		stepOperators = `[
+    zenml_stack_component.step_operator_a.id,
+    zenml_stack_component.step_operator_b.id,
+    zenml_stack_component.step_operator_c.id,
+  ]`
+	}
+
+	return fmt.Sprintf(`
+%s
+
+resource "zenml_stack_component" "artifact_store" {
+  name   = "test-store-step-ops"
+  type   = "artifact_store"
+  flavor = "local"
+
+  configuration = {
+    path = "/tmp/artifacts"
+  }
+}
+
+resource "zenml_stack_component" "orchestrator" {
+  name   = "test-orchestrator-step-ops"
+  type   = "orchestrator"
+  flavor = "local"
+}
+
+resource "zenml_stack_component" "step_operator_a" {
+  name   = "test-step-operator-a"
+  type   = "step_operator"
+  flavor = "kubernetes"
+}
+
+resource "zenml_stack_component" "step_operator_b" {
+  name   = "test-step-operator-b"
+  type   = "step_operator"
+  flavor = "kubernetes"
+}
+
+resource "zenml_stack_component" "step_operator_c" {
+  name   = "test-step-operator-c"
+  type   = "step_operator"
+  flavor = "kubernetes"
+}
+
+resource "zenml_stack" "test" {
+  name = "test-stack-step-ops"
+
+  components = {
+    artifact_store = zenml_stack_component.artifact_store.id
+    orchestrator   = zenml_stack_component.orchestrator.id
+  }
+
+  step_operators = %s
+
+  labels = {
+    environment = "test"
+  }
+}
+`, testAccProviderConfig(), stepOperators)
 }
