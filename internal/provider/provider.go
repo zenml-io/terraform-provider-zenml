@@ -205,6 +205,8 @@ func (p *ZenMLProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		return
 	}
 
+	client.ServerVersion = serverInfo.Version
+
 	if !skipVersionCheck {
 		serverVersion, err := version.NewVersion(serverInfo.Version)
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -20,6 +21,7 @@ import (
 var _ resource.Resource = &StackResource{}
 var _ resource.ResourceWithImportState = &StackResource{}
 var _ resource.ResourceWithConfigValidators = &StackResource{}
+var _ resource.ResourceWithModifyPlan = &StackResource{}
 
 // requiresReplaceIfRequiredComponentChanges is a plan modifier that triggers
 // resource replacement when required component types (orchestrator,
@@ -86,11 +88,21 @@ type StackResource struct {
 }
 
 type StackResourceModel struct {
-	ID         types.String `tfsdk:"id"`
-	Name       types.String `tfsdk:"name"`
-	Components types.Map    `tfsdk:"components"`
-	Labels     types.Map    `tfsdk:"labels"`
+	ID            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Components    types.Map    `tfsdk:"components"`
+	StepOperators types.Set    `tfsdk:"step_operators"`
+	Labels        types.Map    `tfsdk:"labels"`
 }
+
+// stepOperatorComponentType is the component type that ZenML allows to be
+// attached to a stack multiple times.
+const stepOperatorComponentType = "step_operator"
+
+// minServerVersionMultipleComponentsPerType is the first ZenML server version
+// that supports attaching multiple components of the same type to a stack
+// (zenml-io/zenml#4671).
+const minServerVersionMultipleComponentsPerType = "0.94.3"
 
 func (r *StackResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_stack"
@@ -121,6 +133,15 @@ func (r *StackResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				PlanModifiers: []planmodifier.Map{
 					requiresReplaceIfRequiredComponentChanges{},
 				},
+			},
+			"step_operators": schema.SetAttribute{
+				MarkdownDescription: "Set of step operator component IDs to " +
+					"attach to the stack. Use this instead of " +
+					"`components.step_operator` when the stack needs more " +
+					"than one step operator. Cannot be combined with " +
+					"`components.step_operator`.",
+				ElementType: types.StringType,
+				Optional:    true,
 			},
 			"labels": schema.MapAttribute{
 				MarkdownDescription: "Labels for the stack",
@@ -192,7 +213,102 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 				)
 			}
 		}
+
+		// Unknown values may still resolve to null, so only report a conflict
+		// once both sides are known. Terraform validates again at apply time.
+		if stepOperator, ok := componentElements[stepOperatorComponentType]; ok &&
+			!stepOperator.IsNull() && !stepOperator.IsUnknown() &&
+			!data.StepOperators.IsNull() && !data.StepOperators.IsUnknown() {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("step_operators"),
+				"Conflicting step operator configuration",
+				"Step operators can be configured either via `components.step_operator` "+
+					"or via `step_operators`, but not both. Use `step_operators` to "+
+					"attach multiple step operators to a stack.",
+			)
+		}
 	}
+
+	if !data.StepOperators.IsNull() && !data.StepOperators.IsUnknown() {
+		stepOperatorElements := make([]types.String, 0, len(data.StepOperators.Elements()))
+		resp.Diagnostics.Append(data.StepOperators.ElementsAs(ctx, &stepOperatorElements, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		for _, id := range stepOperatorElements {
+			if id.IsUnknown() {
+				continue
+			}
+			if id.IsNull() {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("step_operators"),
+					"Invalid step operator ID",
+					"Step operator IDs must not be null.",
+				)
+				continue
+			}
+			value := id.ValueString()
+			if value == "" || strings.TrimSpace(value) != value {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("step_operators"),
+					"Invalid step operator ID",
+					fmt.Sprintf("Step operator IDs must be non-empty and must not contain "+
+						"leading or trailing whitespace, got %q.", value),
+				)
+			}
+		}
+	}
+}
+
+// ModifyPlan rejects plans that attach more than one step operator to a stack
+// when the ZenML server is too old to support multiple components of the same
+// type. Older servers silently keep only one of them, which would otherwise
+// surface as an "inconsistent result after apply" error after the stack has
+// already been modified.
+func (r *StackResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || r.client == nil {
+		return
+	}
+
+	var stepOperators types.Set
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("step_operators"), &stepOperators)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(checkServerSupportsStepOperators(r.client.ServerVersion, stepOperators)...)
+}
+
+// checkServerSupportsStepOperators returns an error diagnostic if more than
+// one step operator is configured and the server version is known to be older
+// than minServerVersionMultipleComponentsPerType. Unparseable or unknown
+// server versions are not rejected.
+func checkServerSupportsStepOperators(serverVersion string, stepOperators types.Set) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	if stepOperators.IsNull() || stepOperators.IsUnknown() || len(stepOperators.Elements()) <= 1 {
+		return diags
+	}
+
+	current, err := version.NewVersion(serverVersion)
+	if err != nil {
+		return diags
+	}
+	minimum := version.Must(version.NewVersion(minServerVersionMultipleComponentsPerType))
+	if !current.LessThan(minimum) {
+		return diags
+	}
+
+	diags.AddAttributeError(
+		path.Root("step_operators"),
+		"Multiple step operators not supported by ZenML server",
+		fmt.Sprintf("Attaching more than one step operator to a stack requires ZenML "+
+			"server version %s or later, but the server reports version %s. "+
+			"Upgrade the ZenML server or configure at most one step operator.",
+			minServerVersionMultipleComponentsPerType, serverVersion),
+	)
+	return diags
 }
 
 func (r *StackResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -225,12 +341,31 @@ func (r *StackResource) populateStackModel(
 	data.Name = types.StringValue(stack.Name)
 
 	if stack.Metadata != nil {
-		componentValue := r.flattenStackComponentsToTFMap(ctx, stack.Metadata.Components, data.Components, diags)
+		apiComponents := stack.Metadata.Components
+
+		// Step operators are tracked in the dedicated `step_operators` set if
+		// the user manages them there, or if the stack has more than one step
+		// operator (which `components` cannot represent). Otherwise they stay
+		// in `components.step_operator` for backwards compatibility.
+		stepOperatorIDs := componentIDs(apiComponents[stepOperatorComponentType])
+		useStepOperatorSet := !data.StepOperators.IsNull() || len(stepOperatorIDs) > 1
+		if useStepOperatorSet {
+			apiComponents = withoutComponentType(apiComponents, stepOperatorComponentType)
+		}
+
+		componentValue := r.flattenStackComponentsToTFMap(ctx, apiComponents, data.Components, diags)
 		if diags.HasError() {
 			return
 		}
 		if componentValue != nil {
 			data.Components = *componentValue
+		}
+
+		if useStepOperatorSet {
+			data.StepOperators = flattenStringSliceToTFSet(stepOperatorIDs, diags)
+			if diags.HasError() {
+				return
+			}
 		}
 
 		labelValue := flattenStringMapToTFMap(stack.Metadata.Labels, data.Labels, diags)
@@ -241,6 +376,102 @@ func (r *StackResource) populateStackModel(
 			data.Labels = *labelValue
 		}
 	}
+}
+
+// componentIDs returns the trimmed, non-empty IDs of the given components.
+func componentIDs(components []ComponentResponse) []string {
+	ids := make([]string, 0, len(components))
+	for _, comp := range components {
+		id := strings.TrimSpace(comp.ID)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// withoutComponentType returns a shallow copy of components without the given
+// component type.
+func withoutComponentType(
+	components map[string][]ComponentResponse,
+	componentType string,
+) map[string][]ComponentResponse {
+	if components == nil {
+		return nil
+	}
+	result := make(map[string][]ComponentResponse, len(components))
+	for compType, compList := range components {
+		if compType != componentType {
+			result[compType] = compList
+		}
+	}
+	return result
+}
+
+// flattenStringSliceToTFSet converts a list of strings into a Terraform set.
+// An empty list is represented as an empty (non-null) set.
+func flattenStringSliceToTFSet(values []string, diags *diag.Diagnostics) types.Set {
+	elements := make([]attr.Value, 0, len(values))
+	for _, v := range values {
+		elements = append(elements, types.StringValue(v))
+	}
+	set, setDiags := types.SetValue(types.StringType, elements)
+	diags.Append(setDiags...)
+	return set
+}
+
+// expandStepOperatorsFromTF converts the `step_operators` set into a list of
+// component IDs. Values are passed through unchanged (the config validator
+// rejects null, empty and whitespace-padded IDs) so that the stack returned by
+// the API matches the plan exactly.
+func expandStepOperatorsFromTF(
+	ctx context.Context,
+	stepOperators types.Set,
+	diags *diag.Diagnostics,
+) []string {
+	if stepOperators.IsNull() || stepOperators.IsUnknown() {
+		return nil
+	}
+
+	elements := make([]types.String, 0, len(stepOperators.Elements()))
+	diags.Append(stepOperators.ElementsAs(ctx, &elements, false)...)
+	if diags.HasError() {
+		return nil
+	}
+
+	ids := make([]string, 0, len(elements))
+	for _, el := range elements {
+		if el.IsNull() || el.IsUnknown() {
+			continue
+		}
+		ids = append(ids, el.ValueString())
+	}
+	return ids
+}
+
+// expandStackFromTF builds the component map sent to the ZenML API from both
+// the `components` map and the `step_operators` set.
+func expandStackFromTF(
+	ctx context.Context,
+	data *StackResourceModel,
+	diags *diag.Diagnostics,
+) map[string][]string {
+	components := expandStackComponentsFromTF(ctx, data.Components, diags)
+	if diags.HasError() {
+		return nil
+	}
+
+	stepOperators := expandStepOperatorsFromTF(ctx, data.StepOperators, diags)
+	if diags.HasError() {
+		return nil
+	}
+	if len(stepOperators) > 0 {
+		components[stepOperatorComponentType] = append(
+			components[stepOperatorComponentType], stepOperators...,
+		)
+	}
+
+	return components
 }
 
 func expandStackComponentsFromTF(
@@ -385,7 +616,7 @@ func (r *StackResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	components := expandStackComponentsFromTF(ctx, data.Components, &resp.Diagnostics)
+	components := expandStackFromTF(ctx, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -457,7 +688,7 @@ func (r *StackResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
-	components := expandStackComponentsFromTF(ctx, data.Components, &resp.Diagnostics)
+	components := expandStackFromTF(ctx, &data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
