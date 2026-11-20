@@ -43,6 +43,9 @@ type Client struct {
 	APIToken        string
 	APITokenExpires *time.Time
 	HTTPClient      *http.Client
+	// ServerVersion is the version reported by the ZenML server when the
+	// provider was configured. It is empty if the version is not known.
+	ServerVersion string
 }
 
 func NewClient(serverURL, apiKey string, apiToken string) *Client {

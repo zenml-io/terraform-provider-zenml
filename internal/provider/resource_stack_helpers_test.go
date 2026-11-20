@@ -271,9 +271,7 @@ func TestExpandStackFromTF_MergesStepOperators(t *testing.T) {
 	}
 	stepOperators, diags := types.SetValue(types.StringType, []attr.Value{
 		types.StringValue("step-op-1"),
-		types.StringValue(" step-op-2 "),
-		types.StringValue(""),
-		types.StringUnknown(),
+		types.StringValue("step-op-2"),
 	})
 	if diags.HasError() {
 		t.Fatalf("unexpected diagnostics creating step operators set: %v", diags)
@@ -431,5 +429,70 @@ func TestPopulateStackModel_ConfiguredStepOperatorSetIsKept(t *testing.T) {
 	got := decodeStringSet(t, data.StepOperators)
 	if len(got) != 1 || !got["step-op-1"] {
 		t.Fatalf("unexpected step_operators: %v", got)
+	}
+}
+
+func TestExpandStepOperatorsFromTF_PassesIDsThroughUnchanged(t *testing.T) {
+	ctx := context.Background()
+
+	// Whitespace-padded IDs are rejected by the config validator. Expansion
+	// must not silently rewrite them, otherwise the API result would not match
+	// the plan.
+	stepOperators, diags := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue(" step-op-1 "),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating step operators set: %v", diags)
+	}
+
+	var testDiags diag.Diagnostics
+	got := expandStepOperatorsFromTF(ctx, stepOperators, &testDiags)
+	if testDiags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", testDiags)
+	}
+	if len(got) != 1 || got[0] != " step-op-1 " {
+		t.Fatalf("expected ID to be passed through unchanged, got %#v", got)
+	}
+}
+
+func TestCheckServerSupportsStepOperators(t *testing.T) {
+	two, diags := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue("step-op-1"),
+		types.StringValue("step-op-2"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating set: %v", diags)
+	}
+	one, diags := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue("step-op-1"),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics creating set: %v", diags)
+	}
+
+	tests := []struct {
+		name          string
+		serverVersion string
+		stepOperators types.Set
+		wantError     bool
+	}{
+		{"multiple on old server", "0.94.2", two, true},
+		{"multiple on much older server", "0.80.0", two, true},
+		{"multiple on minimum version", "0.94.3", two, false},
+		{"multiple on newer server", "0.97.0", two, false},
+		{"single on old server", "0.94.2", one, false},
+		{"null set on old server", "0.94.2", types.SetNull(types.StringType), false},
+		{"unknown set on old server", "0.94.2", types.SetUnknown(types.StringType), false},
+		{"unparseable server version", "not-a-version", two, false},
+		{"unknown server version", "", two, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := checkServerSupportsStepOperators(tt.serverVersion, tt.stepOperators)
+			if got.HasError() != tt.wantError {
+				t.Fatalf("expected error=%v, got diagnostics %v", tt.wantError, got)
+			}
+		})
 	}
 }

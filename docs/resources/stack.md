@@ -53,7 +53,7 @@ resource "zenml_stack" "my_stack" {
 
 ### Multiple Step Operators
 
-A stack can have more than one step operator. Use the `step_operators` argument to attach several of them:
+A stack can have more than one step operator. Use the `step_operators` argument to attach several of them. This requires ZenML server version 0.94.3 or later; on older servers the plan fails if more than one step operator is configured.
 
 ```hcl
 resource "zenml_stack_component" "gpu_step_operator" {
@@ -83,6 +83,8 @@ resource "zenml_stack" "multi_step_operator_stack" {
 }
 ```
 
+`step_operators` is an unordered set, so you cannot choose which step operator the ZenML server treats as the stack's default; adding or removing one may change it. When a stack has more than one step operator, select one explicitly by name in each step, for example `@step(step_operator="gpu-step-operator")`, instead of relying on `step_operator=True`.
+
 ## Argument Reference
 
 * `name` - (Required) The name of the stack.
@@ -102,7 +104,7 @@ resource "zenml_stack" "multi_step_operator_stack" {
   * `image_builder`
   * `model_registry`
   * `sandbox`
-* `step_operators` - (Optional) A set of step operator component IDs. Use this to attach multiple step operators to the stack. Cannot be combined with `components.step_operator`; a single step operator can be configured either way.
+* `step_operators` - (Optional) A set of step operator component IDs. Use this to attach multiple step operators to the stack (requires ZenML server 0.94.3 or later when more than one is set). IDs must be non-empty and must not contain leading or trailing whitespace. Cannot be combined with `components.step_operator`; a single step operator can be configured either way.
 * `labels` - (Optional) A map of labels to associate with the stack.
 
 ## Update Behavior
@@ -112,6 +114,10 @@ Updating stack labels, name, or component references is performed in place whene
 ## Step Operator Representation
 
 When reading a stack (for example after `terraform import`), the provider reports its step operators in `components.step_operator` if the stack has exactly one step operator and `step_operators` is not configured. If the stack has more than one step operator, or `step_operators` is configured, all of them are reported in `step_operators`.
+
+## Upgrading
+
+Earlier provider versions only tracked one step operator per stack. If Terraform manages a stack with one step operator and another step operator was attached outside Terraform, the first plan after upgrading shows the extra step operator being removed. Earlier versions showed no diff but still dropped it on the next unrelated update of the stack. To keep it, add all step operators to `step_operators` before applying.
 
 ## Attributes Reference
 

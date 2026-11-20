@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -20,6 +21,7 @@ import (
 var _ resource.Resource = &StackResource{}
 var _ resource.ResourceWithImportState = &StackResource{}
 var _ resource.ResourceWithConfigValidators = &StackResource{}
+var _ resource.ResourceWithModifyPlan = &StackResource{}
 
 // requiresReplaceIfRequiredComponentChanges is a plan modifier that triggers
 // resource replacement when required component types (orchestrator,
@@ -96,6 +98,11 @@ type StackResourceModel struct {
 // stepOperatorComponentType is the component type that ZenML allows to be
 // attached to a stack multiple times.
 const stepOperatorComponentType = "step_operator"
+
+// minServerVersionMultipleComponentsPerType is the first ZenML server version
+// that supports attaching multiple components of the same type to a stack
+// (zenml-io/zenml#4671).
+const minServerVersionMultipleComponentsPerType = "0.94.3"
 
 func (r *StackResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_stack"
@@ -207,8 +214,11 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 			}
 		}
 
+		// Unknown values may still resolve to null, so only report a conflict
+		// once both sides are known. Terraform validates again at apply time.
 		if stepOperator, ok := componentElements[stepOperatorComponentType]; ok &&
-			!stepOperator.IsNull() && !data.StepOperators.IsNull() {
+			!stepOperator.IsNull() && !stepOperator.IsUnknown() &&
+			!data.StepOperators.IsNull() && !data.StepOperators.IsUnknown() {
 			resp.Diagnostics.AddAttributeError(
 				path.Root("step_operators"),
 				"Conflicting step operator configuration",
@@ -227,18 +237,78 @@ func (v stackConfigValidator) ValidateResource(ctx context.Context, req resource
 		}
 
 		for _, id := range stepOperatorElements {
-			if id.IsUnknown() || id.IsNull() {
+			if id.IsUnknown() {
 				continue
 			}
-			if strings.TrimSpace(id.ValueString()) == "" {
+			if id.IsNull() {
 				resp.Diagnostics.AddAttributeError(
 					path.Root("step_operators"),
 					"Invalid step operator ID",
-					"Step operator IDs must be non-empty strings when provided.",
+					"Step operator IDs must not be null.",
+				)
+				continue
+			}
+			value := id.ValueString()
+			if value == "" || strings.TrimSpace(value) != value {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("step_operators"),
+					"Invalid step operator ID",
+					fmt.Sprintf("Step operator IDs must be non-empty and must not contain "+
+						"leading or trailing whitespace, got %q.", value),
 				)
 			}
 		}
 	}
+}
+
+// ModifyPlan rejects plans that attach more than one step operator to a stack
+// when the ZenML server is too old to support multiple components of the same
+// type. Older servers silently keep only one of them, which would otherwise
+// surface as an "inconsistent result after apply" error after the stack has
+// already been modified.
+func (r *StackResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || r.client == nil {
+		return
+	}
+
+	var stepOperators types.Set
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("step_operators"), &stepOperators)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(checkServerSupportsStepOperators(r.client.ServerVersion, stepOperators)...)
+}
+
+// checkServerSupportsStepOperators returns an error diagnostic if more than
+// one step operator is configured and the server version is known to be older
+// than minServerVersionMultipleComponentsPerType. Unparseable or unknown
+// server versions are not rejected.
+func checkServerSupportsStepOperators(serverVersion string, stepOperators types.Set) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	if stepOperators.IsNull() || stepOperators.IsUnknown() || len(stepOperators.Elements()) <= 1 {
+		return diags
+	}
+
+	current, err := version.NewVersion(serverVersion)
+	if err != nil {
+		return diags
+	}
+	minimum := version.Must(version.NewVersion(minServerVersionMultipleComponentsPerType))
+	if !current.LessThan(minimum) {
+		return diags
+	}
+
+	diags.AddAttributeError(
+		path.Root("step_operators"),
+		"Multiple step operators not supported by ZenML server",
+		fmt.Sprintf("Attaching more than one step operator to a stack requires ZenML "+
+			"server version %s or later, but the server reports version %s. "+
+			"Upgrade the ZenML server or configure at most one step operator.",
+			minServerVersionMultipleComponentsPerType, serverVersion),
+	)
+	return diags
 }
 
 func (r *StackResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -351,7 +421,9 @@ func flattenStringSliceToTFSet(values []string, diags *diag.Diagnostics) types.S
 }
 
 // expandStepOperatorsFromTF converts the `step_operators` set into a list of
-// component IDs, skipping null, unknown and empty values.
+// component IDs. Values are passed through unchanged (the config validator
+// rejects null, empty and whitespace-padded IDs) so that the stack returned by
+// the API matches the plan exactly.
 func expandStepOperatorsFromTF(
 	ctx context.Context,
 	stepOperators types.Set,
@@ -372,10 +444,7 @@ func expandStepOperatorsFromTF(
 		if el.IsNull() || el.IsUnknown() {
 			continue
 		}
-		id := strings.TrimSpace(el.ValueString())
-		if id != "" {
-			ids = append(ids, id)
-		}
+		ids = append(ids, el.ValueString())
 	}
 	return ids
 }
